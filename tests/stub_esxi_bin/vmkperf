@@ -1,0 +1,81 @@
+#!/usr/bin/env python3
+# Stub of the ESXi vmkperf tool for testing vmkperf_ops_push. State lives in $STUB_STATE/events.json.
+#   STUB_VENDOR  intel (default) | amd      intel has ESXi's fixed_unhalted_core_cycles, amd has not
+#   STUB_GP      general counters per logical CPU (default 8, AMD Zen: 6)
+#   STUB_PCPUS   logical CPUs (default 4)
+#   STUB_REFUSE_Q=1   'start ... -q n' is rejected (tool without counter selection)
+#   STUB_BUSY    comma list of counter numbers that cannot be taken
+import json, os, sys, time
+state_dir = os.environ.get("STUB_STATE", "/tmp/vktest/state")
+os.makedirs(state_dir, exist_ok=True)
+sf = os.path.join(state_dir, "events.json")
+ev = json.load(open(sf)) if os.path.isfile(sf) else {}
+vendor = os.environ.get("STUB_VENDOR", "intel")
+gp = int(os.environ.get("STUB_GP", "8"))
+ncpu = int(os.environ.get("STUB_PCPUS", "4"))
+busy = set(int(x) for x in os.environ.get("STUB_BUSY", "").split(",") if x)
+RATE = {("0x2e", "0x41"): 4000, ("0x2e", "0x4f"): 100000, ("0x3c", "0x00"): 2000000, ("0xc0", "0x00"): 3000000,
+        ("0xd1", "0x20"): 1500, ("0x21", "0x10"): 1200, ("0x20", "0x10"): 240000, ("0x47", "0x09"): 300000, ("0xd1", "0x04"): 9000,
+        ("0x76", "0x00"): 2000000, ("0x44", "0x48"): 6000, ("0x44", "0xff"): 60000, ("0x64", "0x09"): 9000,
+        ("0x45", "0xf0"): 150, ("0x45", "0xff"): 4500, ("0x85", "0x0f"): 30, ("0x85", "0xff"): 30, ("0x85", "0x07"): 30, ("0x43", "0x48"): 4000, ("0x43", "0x5b"): 40000}
+T0 = float(open(os.path.join(state_dir, "t0")).read()) if os.path.isfile(os.path.join(state_dir, "t0")) else None
+if T0 is None:
+    T0 = time.time(); open(os.path.join(state_dir, "t0"), "w").write(str(T0))
+def save(): json.dump(ev, open(sf, "w"))
+def rows(rate, ctype, cnum, since):
+    el = time.time() - since
+    print("pcpuID ctrVal timeStamp ctrType ctrNum")
+    for p in range(ncpu):
+        print("%d %d %d %d %d" % (p, int(rate * el * (1 + 0.01 * p)), int(time.time() * 1e6), ctype, cnum))
+a = sys.argv[1:]
+if not a:
+    print("usage: vmkperf start <name> -e <eventSel> -u <unitMask> [-c cmask] [-q ctr] | stop <name>|all | read <name>|all | readall | listevents | listpmc"); sys.exit(1)
+cmd = a[0]
+if cmd == "start":
+    name = a[1]; opt = dict(zip(a[2::2], a[3::2]))
+    if os.environ.get("STUB_REFUSE_Q") == "1" and "-q" in opt:
+        print("Invalid option -q\nusage: vmkperf start ..."); sys.exit(1)
+    if name in ev:
+        print("Error: event %s already active" % name); sys.exit(1)
+    q = int(opt["-q"]) if "-q" in opt else None
+    used = set(e["q"] for e in ev.values())
+    if q is None:
+        free = [c for c in range(gp) if c not in used and c not in busy]
+        if not free:
+            print("Error: out of resources"); sys.exit(1)
+        q = free[0]
+    elif q >= gp or q in used or q in busy:
+        print("Error: counter %d not permitted or in use" % q); sys.exit(1)
+    ev[name] = {"e": opt.get("-e", "").lower(), "u": opt.get("-u", "0x00").lower(), "c": opt.get("-c", ""), "q": q, "t0": time.time()}
+    save(); sys.exit(0)
+if cmd == "stop":
+    if a[1] == "all": ev.clear()
+    elif a[1] in ev: del ev[a[1]]
+    else:
+        print("Error: unknown event %s" % a[1]); save(); sys.exit(1)
+    save(); sys.exit(0)
+if cmd == "read":
+    name = a[1]
+    if name == "fixed_unhalted_core_cycles":
+        if vendor == "intel":
+            rows(2000000, 1, 1, T0); sys.exit(0)
+        print("Error: unknown event fixed_unhalted_core_cycles"); sys.exit(1)
+    if name not in ev:
+        print("Error: unknown event %s" % name); sys.exit(1)
+    e = ev[name]
+    rate = RATE.get((e["e"], e["u"]), 1000)
+    restricted = (e["e"], e["u"]) in (("0xd1", "0x20"), ("0x21", "0x10"), ("0x20", "0x10"), ("0x47", "0x09"), ("0xd1", "0x04"))
+    if vendor == "intel" and restricted and e["q"] > 3:
+        rate = 0                      # an event Intel limits to counters 0-3 counts nothing elsewhere
+    rows(rate, 0, e["q"], e["t0"]); sys.exit(0)
+if cmd == "listevents":
+    print("Active events:")
+    if vendor == "intel": print("  fixed_unhalted_core_cycles")
+    for n in ev: print("  " + n)
+    print("Pre-defined events:\n  (stub)"); sys.exit(0)
+if cmd == "listpmc":
+    print("general counters: %d  fixed counters: %d" % (gp, 3 if vendor == "intel" else 0)); sys.exit(0)
+if cmd == "readall":
+    for n in ev: print(n, ev[n])
+    sys.exit(0)
+print("Error: unknown command " + cmd); sys.exit(1)

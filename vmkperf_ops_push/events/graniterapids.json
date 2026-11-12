@@ -1,0 +1,101 @@
+{
+  "cpu": "graniterapids",
+  "family_model": [
+    "6-173",
+    "6-174"
+  ],
+  "source": "intel/perfmon graniterapids_core.json V1.21 (DatePublished 09/03/2026)",
+  "generated": "2026-10-12",
+  "events": [
+    {
+      "key": "llc_miss",
+      "name": "LONGEST_LAT_CACHE.MISS",
+      "event": "0x2e",
+      "umask": "0x41",
+      "cmask": 0,
+      "counters": "0,1,2,3,4,5,6,7",
+      "restricted": false,
+      "desc": "LLC misses (demand + prefetch)"
+    },
+    {
+      "key": "llc_ref",
+      "name": "LONGEST_LAT_CACHE.REFERENCE",
+      "event": "0x2e",
+      "umask": "0x4f",
+      "cmask": 0,
+      "counters": "0,1,2,3,4,5,6,7",
+      "restricted": false,
+      "desc": "LLC references"
+    },
+    {
+      "key": "cycles",
+      "name": "CPU_CLK_UNHALTED.THREAD_P",
+      "event": "0x3c",
+      "umask": "0x00",
+      "cmask": 0,
+      "counters": "0,1,2,3,4,5,6,7",
+      "restricted": false,
+      "desc": "unhalted core cycles"
+    },
+    {
+      "key": "instr",
+      "name": "INST_RETIRED.ANY_P",
+      "event": "0xc0",
+      "umask": "0x00",
+      "cmask": 0,
+      "counters": "0,1,2,3,4,5,6,7",
+      "restricted": false,
+      "desc": "retired instructions"
+    },
+    {
+      "key": "l3_load_miss",
+      "name": "MEM_LOAD_RETIRED.L3_MISS",
+      "event": "0xd1",
+      "umask": "0x20",
+      "cmask": 0,
+      "counters": "0,1,2,3",
+      "restricted": true,
+      "desc": "retired demand loads that missed L3"
+    },
+    {
+      "key": "l3miss_rd",
+      "name": "OFFCORE_REQUESTS.L3_MISS_DEMAND_DATA_RD",
+      "event": "0x21",
+      "umask": "0x10",
+      "cmask": 0,
+      "counters": "0,1,2,3",
+      "restricted": true,
+      "desc": "offcore demand data reads that missed L3"
+    },
+    {
+      "key": "l3miss_rd_outst",
+      "name": "OFFCORE_REQUESTS_OUTSTANDING.L3_MISS_DEMAND_DATA_RD",
+      "event": "0x20",
+      "umask": "0x10",
+      "cmask": 0,
+      "counters": "0,1,2,3",
+      "restricted": true,
+      "desc": "outstanding cycles of those reads (sum)"
+    },
+    {
+      "key": "l3_stall",
+      "name": "MEMORY_ACTIVITY.STALLS_L3_MISS",
+      "event": "0x47",
+      "umask": "0x09",
+      "cmask": 9,
+      "counters": "0,1,2,3",
+      "restricted": true,
+      "desc": "execution stall cycles with an L3 miss pending"
+    },
+    {
+      "key": "l3_load_hit",
+      "name": "MEM_LOAD_RETIRED.L3_HIT",
+      "event": "0xd1",
+      "umask": "0x04",
+      "cmask": 0,
+      "counters": "0,1,2,3",
+      "restricted": true,
+      "desc": "retired demand loads that hit L3"
+    }
+  ]
+}

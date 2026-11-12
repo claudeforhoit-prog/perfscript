@@ -1,0 +1,18 @@
+#!/usr/bin/env python3
+import os, sys
+a = " ".join(sys.argv[1:])
+fam, mod = os.environ.get("STUB_FAMILY", "6"), os.environ.get("STUB_MODEL", "143")
+if "hardware cpu list" in a:
+    print("structure[0].Family.integer=%s\nstructure[0].Model.integer=%s\nstructure[0].Stepping.integer=1\nstructure[1].Family.integer=%s\nstructure[1].Model.integer=%s" % (fam, mod, fam, mod))
+elif "system hostname get" in a:
+    print("structure.FullyQualifiedDomainName.string=stubhost01.lab.local\nstructure.HostName.string=stubhost01")
+elif "firewall ruleset list" in a:
+    print("structure[0].Enabled.boolean=true\nstructure[0].Name.string=httpClient")
+elif "system version get" in a:
+    print("structure.Version.string=8.0.3\nstructure.Build.string=Releasebuild-00000000")
+elif "hardware cpu global get" in a:
+    print("structure.CPUCores.integer=16\nstructure.CPUThreads.integer=32\nstructure.HyperthreadingActive.boolean=true")
+elif "vm process list" in a:
+    print("(none)")
+else:
+    print("stub esxcli: " + a)

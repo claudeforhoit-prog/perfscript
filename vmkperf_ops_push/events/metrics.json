@@ -1,0 +1,106 @@
+{
+  "_comment": "Derived metrics, identical for every CPU generation. 'sum' = interval delta summed over the pCPU set; 'pct' = 100*num/den; 'ratio' = scale*num/den. A metric is skipped when any input event is not running.",
+  "metrics": [
+    {
+      "key": "LLC_Miss",
+      "type": "sum",
+      "src": "llc_miss",
+      "desc": "LLC misses in the interval"
+    },
+    {
+      "key": "LLC_Ref",
+      "type": "sum",
+      "src": "llc_ref",
+      "desc": "LLC references in the interval"
+    },
+    {
+      "key": "Cycles",
+      "type": "sum",
+      "src": "cycles",
+      "desc": "unhalted cycles in the interval"
+    },
+    {
+      "key": "Instructions",
+      "type": "sum",
+      "src": "instr",
+      "desc": "retired instructions in the interval"
+    },
+    {
+      "key": "L3_Load_Miss",
+      "type": "sum",
+      "src": "l3_load_miss",
+      "desc": "retired demand loads that missed L3"
+    },
+    {
+      "key": "L3_Load_Hit",
+      "type": "sum",
+      "src": "l3_load_hit",
+      "desc": "retired demand loads that hit L3"
+    },
+    {
+      "key": "L3_Miss_DemandRd",
+      "type": "sum",
+      "src": "l3miss_rd",
+      "desc": "offcore demand data reads that missed L3"
+    },
+    {
+      "key": "L3_Stall_Cycles",
+      "type": "sum",
+      "src": "l3_stall",
+      "desc": "stall cycles with an L3 miss pending"
+    },
+    {
+      "key": "LLC_MissRate_Pct",
+      "type": "pct",
+      "num": "llc_miss",
+      "den": "llc_ref",
+      "desc": "LLC miss / LLC reference"
+    },
+    {
+      "key": "LLC_MPKI",
+      "type": "ratio",
+      "num": "llc_miss",
+      "den": "instr",
+      "scale": 1000,
+      "desc": "LLC misses per 1000 instructions"
+    },
+    {
+      "key": "L3_Load_MPKI",
+      "type": "ratio",
+      "num": "l3_load_miss",
+      "den": "instr",
+      "scale": 1000,
+      "desc": "demand-load L3 misses per 1000 instructions"
+    },
+    {
+      "key": "L3_Load_HitRate_Pct",
+      "type": "pct",
+      "num": "l3_load_hit",
+      "den": "l3_load_hit+l3_load_miss",
+      "desc": "demand-load L3 hit / (hit+miss)"
+    },
+    {
+      "key": "L3_Miss_Latency_Cyc",
+      "type": "ratio",
+      "num": "l3miss_rd_outst",
+      "den": "l3miss_rd",
+      "scale": 1,
+      "desc": "average L3-miss demand read latency in cycles"
+    },
+    {
+      "key": "L3_Stall_Pct",
+      "type": "pct",
+      "num": "l3_stall",
+      "den": "cycles",
+      "desc": "share of cycles stalled on an L3 miss"
+    },
+    {
+      "key": "IPC",
+      "type": "ratio",
+      "num": "instr",
+      "den": "cycles",
+      "scale": 1,
+      "desc": "instructions per cycle"
+    }
+  ]
+}

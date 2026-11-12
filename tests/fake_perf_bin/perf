@@ -1,0 +1,147 @@
+#!/usr/bin/env python3
+# Fake `perf stat` for testing ops_metric_push. Behaviour is set by environment variables:
+#   FAKE_PERF_LAYOUT   new (default): count;unit;event;runtime;pct;;   old: count;event   nopct: count;unit;event
+#   FAKE_PERF_GP       number of general-purpose counters (default 8)
+#   FAKE_PERF_FIXED    events that use a fixed counter (default "cycles,instructions"; "" on AMD)
+#   FAKE_PERF_UNSUP    events printed as <not supported>
+#   FAKE_PERF_BADSYN   events that are a syntax error for this perf (exit 129, no data line)
+#   FAKE_PERF_NOIVAL   1 = this perf has no -I
+#   FAKE_PERF_FAILBASE 1 = every run fails (no PMU / no permission)
+#   FAKE_PERF_RATES    JSON {event: counts per second}; default from a fixed table
+#   FAKE_PERF_LOG      file that gets one line per invocation
+#   FAKE_PERF_DRIFT_MS extra milliseconds added to every interval (interval timer drift)
+#   FAKE_PERF_DIE_AFTER seconds after which an interval-mode perf exits by itself
+#   FAKE_PERF_SILENT_AFTER seconds after which an interval-mode perf stops printing (but stays alive)
+import json, os, re, signal, subprocess, sys, time
+
+RATES = {"instructions": 3000000, "cycles": 2000000, "cache-misses": 4000, "cache-references": 100000,
+         "L1-dcache-load-misses": 50000, "L1-dcache-loads": 1000000, "dTLB-load-misses": 300, "dTLB-loads": 1000000,
+         "iTLB-load-misses": 20, "iTLB-loads": 4000, "LLC-load-misses": 1500, "LLC-store-misses": 500,
+         "dc_fill_mem": 6000, "dc_fill_all": 60000, "l2_miss": 9000, "l2_dtlb_miss": 150, "l1_dtlb_miss": 4500,
+         "l2_itlb_miss": 30, "dmnd_fill_mem": 4000, "dmnd_fill_all": 40000}
+
+def env_list(name, default=""):
+    return [x for x in os.environ.get(name, default).split(",") if x]
+
+def split_events(spec):
+    out, cur, depth = [], "", 0
+    for ch in spec:
+        if ch == "/":
+            depth ^= 1
+        if ch == "," and depth == 0:
+            out.append(cur); cur = ""
+        else:
+            cur += ch
+    if cur:
+        out.append(cur)
+    return out
+
+def label(ev, layout):
+    m = re.search(r"name=([A-Za-z0-9_.]+)", ev)
+    if m:
+        return m.group(1)
+    m = re.fullmatch(r"r([0-9a-fA-F]+)", ev)
+    if m:
+        return ("raw 0x%x" % int(m.group(1), 16)) if layout == "old" else ev
+    return ev
+
+def main():
+    argv = sys.argv[1:]
+    log = os.environ.get("FAKE_PERF_LOG")
+    if log:
+        with open(log, "a") as f:
+            f.write("%.3f %s\n" % (time.time(), " ".join(argv)))
+    if not argv or argv[0] != "stat":
+        sys.stderr.write("fake perf: only 'stat' is implemented\n"); return 129
+    sep, events, interval, cmd = None, [], None, []
+    i = 1
+    while i < len(argv):
+        a = argv[i]
+        if a == "-a":
+            pass
+        elif a == "-x":
+            sep = argv[i + 1]; i += 1
+        elif a.startswith("-x") and len(a) > 2:
+            sep = a[2:]
+        elif a == "-e":
+            events += split_events(argv[i + 1]); i += 1
+        elif a == "-I":
+            interval = int(argv[i + 1]); i += 1
+        elif a.startswith("-"):
+            sys.stderr.write("Error: unknown switch `%s'\n" % a); return 129
+        else:
+            cmd = argv[i:]; break
+        i += 1
+    if os.environ.get("FAKE_PERF_FAILBASE") == "1":
+        sys.stderr.write("Error:\nNo permission to enable cycles event.\n"); return 255
+    if interval is not None and os.environ.get("FAKE_PERF_NOIVAL") == "1":
+        sys.stderr.write("  Error: unknown switch `I'\n\n usage: perf stat [<options>] [<command>]\n"); return 129
+    layout = os.environ.get("FAKE_PERF_LAYOUT", "new")
+    bad = set(env_list("FAKE_PERF_BADSYN"))
+    for ev in events:
+        if ev in bad or label(ev, layout) in bad:
+            sys.stderr.write("event syntax error: '%s'\n                     \\___ parser error\nRun 'perf list' for a list of valid events\n" % ev)
+            return 129
+    unsup = set(env_list("FAKE_PERF_UNSUP"))
+    fixed = set(env_list("FAKE_PERF_FIXED", "cycles,instructions"))
+    gp = int(os.environ.get("FAKE_PERF_GP", "8"))
+    rates = dict(RATES)
+    if os.environ.get("FAKE_PERF_RATES"):
+        rates.update(json.loads(os.environ["FAKE_PERF_RATES"]))
+    labels = [label(e, layout) for e in events]
+    need_gp = [l for l in labels if l not in fixed and l not in unsup]
+    share = 1.0 if len(need_gp) <= gp else float(gp) / len(need_gp)
+
+    def block(elapsed, ts=None):
+        lines = []
+        for l in labels:
+            pre = ("%6d.%09d%s" % (int(ts), int(round((ts - int(ts)) * 1e9)), sep)) if ts is not None else ""
+            if l in unsup:
+                val, run, pct = "<not supported>", 0, 100.0
+            else:
+                val = str(int(round(rates.get(l, 1000) * elapsed)))
+                sh = 1.0 if l in fixed else share
+                run, pct = int(elapsed * 1e9 * sh), 100.0 * sh
+            if layout == "old":
+                lines.append("%s%s%s%s" % (pre, val, sep, l))
+            elif layout == "nopct":
+                lines.append("%s%s%s%s%s" % (pre, val, sep, sep, l))
+            else:
+                lines.append("%s%s%s%s%s%s%d%s%.2f%s%s" % (pre, val, sep, sep, l, sep, run, sep, pct, sep, sep))
+        sys.stderr.write("\n".join(lines) + "\n"); sys.stderr.flush()
+
+    child = subprocess.Popen(cmd) if cmd else None
+    def stop(signum, frame):
+        if child and child.poll() is None:
+            child.terminate()
+        os._exit(130)
+    signal.signal(signal.SIGINT, stop)
+    t0 = time.time()
+    if interval is None:
+        if child:
+            child.wait()
+        block(max(time.time() - t0, 0.001))
+        return 0
+    step = interval / 1000.0
+    if interval >= 1000:          # drift is for the collection run, not for the short -I capability check
+        step += float(os.environ.get("FAKE_PERF_DRIFT_MS", "0")) / 1000.0
+    die = float(os.environ.get("FAKE_PERF_DIE_AFTER", "0"))
+    silent = float(os.environ.get("FAKE_PERF_SILENT_AFTER", "0"))
+    k, last = 1, 0.0
+    while True:
+        target = t0 + k * step
+        while time.time() < target:
+            if child and child.poll() is not None:
+                return 0
+            if die and time.time() - t0 >= die:
+                if child and child.poll() is None:
+                    child.terminate()
+                return 1
+            time.sleep(min(0.05, max(0.0, target - time.time())))
+        now = time.time() - t0
+        if not (silent and now >= silent):
+            block(now - last, ts=now)
+        last = now; k += 1
+
+if __name__ == "__main__":
+    sys.exit(main())

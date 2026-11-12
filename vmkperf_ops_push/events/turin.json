@@ -1,0 +1,104 @@
+{
+  "cpu": "turin",
+  "vendor": "amd",
+  "label": "AMD Zen 5: EPYC 9005 Series (CPUID 1A.2, 1A.11)",
+  "family_model": [
+    "26-2",
+    "26-17"
+  ],
+  "source": "Linux kernel tools/perf/pmu-events/arch/x86/amdzen5 (torvalds/linux master fetched 2026-11-12, last change eda39f98bbc5 2026-07-08)",
+  "generated": "2026-11-12",
+  "gp_counters": 6,
+  "fixed_cycles": false,
+  "metrics_file": "metrics_amd.json",
+  "events": [
+    {
+      "key": "cycles",
+      "name": "ls_not_halted_cyc",
+      "event": "0x76",
+      "umask": "0x00",
+      "cmask": 0,
+      "counters": "0,1,2,3,4,5",
+      "restricted": false,
+      "desc": "core cycles not in halt",
+      "file": "load-store.json"
+    },
+    {
+      "key": "instr",
+      "name": "ex_ret_instr",
+      "event": "0xc0",
+      "umask": "0x00",
+      "cmask": 0,
+      "counters": "0,1,2,3,4,5",
+      "restricted": false,
+      "desc": "retired instructions",
+      "file": "execution.json"
+    },
+    {
+      "key": "l2_dtlb_miss",
+      "name": "ls_l1_d_tlb_miss.all_l2_miss",
+      "event": "0x45",
+      "umask": "0xf0",
+      "cmask": 0,
+      "counters": "0,1,2,3,4,5",
+      "restricted": false,
+      "desc": "L1 DTLB misses that also missed the L2 DTLB (page walks)",
+      "file": "load-store.json"
+    },
+    {
+      "key": "dc_fill_mem",
+      "name": "ls_any_fills_from_sys.dram_io_all",
+      "event": "0x44",
+      "umask": "0x48",
+      "cmask": 0,
+      "counters": "0,1,2,3,4,5",
+      "restricted": false,
+      "desc": "L1 data cache fills from DRAM or MMIO (any NUMA node)",
+      "file": "load-store.json"
+    },
+    {
+      "key": "l2_miss",
+      "name": "l2_cache_req_stat.ic_dc_miss_in_l2",
+      "event": "0x64",
+      "umask": "0x09",
+      "cmask": 0,
+      "counters": "0,1,2,3,4,5",
+      "restricted": false,
+      "desc": "core-to-L2 requests that missed L2 (data + instruction, no prefetch)",
+      "file": "l2-cache.json"
+    },
+    {
+      "key": "dc_fill_all",
+      "name": "ls_any_fills_from_sys.all",
+      "event": "0x44",
+      "umask": "0xff",
+      "cmask": 0,
+      "counters": "0,1,2,3,4,5",
+      "restricted": false,
+      "desc": "L1 data cache fills from every source",
+      "file": "load-store.json"
+    },
+    {
+      "key": "l1_dtlb_miss",
+      "name": "ls_l1_d_tlb_miss.all",
+      "event": "0x45",
+      "umask": "0xff",
+      "cmask": 0,
+      "counters": "0,1,2,3,4,5",
+      "restricted": false,
+      "desc": "L1 DTLB misses, all page sizes",
+      "file": "load-store.json"
+    },
+    {
+      "key": "l2_itlb_miss",
+      "name": "bp_l1_tlb_miss_l2_tlb_miss.all",
+      "event": "0x85",
+      "umask": "0x0f",
+      "cmask": 0,
+      "counters": "0,1,2,3,4,5",
+      "restricted": false,
+      "desc": "instruction fetches that missed the L1 and L2 ITLB (page walks)",
+      "file": "branch-prediction.json"
+    }
+  ]
+}

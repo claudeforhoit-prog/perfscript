@@ -1,0 +1,103 @@
+{
+  "cpu": "rome",
+  "vendor": "amd",
+  "label": "AMD Zen 2: EPYC 7002/7Fx2/7Hx2 Series (CPUID 17.31)",
+  "family_model": [
+    "23-49"
+  ],
+  "source": "Linux kernel tools/perf/pmu-events/arch/x86/amdzen2 (torvalds/linux master fetched 2026-11-12, last change 8d40f74ebf21 2023-07-11)",
+  "generated": "2026-11-12",
+  "gp_counters": 6,
+  "fixed_cycles": false,
+  "metrics_file": "metrics_amd_zen2.json",
+  "events": [
+    {
+      "key": "cycles",
+      "name": "ls_not_halted_cyc",
+      "event": "0x76",
+      "umask": "0x00",
+      "cmask": 0,
+      "counters": "0,1,2,3,4,5",
+      "restricted": false,
+      "desc": "core cycles not in halt",
+      "file": "memory.json"
+    },
+    {
+      "key": "instr",
+      "name": "ex_ret_instr",
+      "event": "0xc0",
+      "umask": "0x00",
+      "cmask": 0,
+      "counters": "0,1,2,3,4,5",
+      "restricted": false,
+      "desc": "retired instructions",
+      "file": "core.json"
+    },
+    {
+      "key": "l2_dtlb_miss",
+      "name": "l2_dtlb_misses",
+      "event": "0x45",
+      "umask": "0xf0",
+      "cmask": 0,
+      "counters": "0,1,2,3,4,5",
+      "restricted": false,
+      "desc": "L1 DTLB misses that also missed the L2 DTLB (page walks)",
+      "file": "recommended.json"
+    },
+    {
+      "key": "dmnd_fill_mem",
+      "name": "ls_refills_from_sys.ls_mabresp_lcl_dram + ls_mabresp_rmt_dram",
+      "event": "0x43",
+      "umask": "0x48",
+      "cmask": 0,
+      "counters": "0,1,2,3,4,5",
+      "restricted": false,
+      "desc": "L1 data cache demand fills from DRAM or IO (this die + another die)",
+      "file": "memory.json"
+    },
+    {
+      "key": "l2_miss",
+      "name": "l2_cache_req_stat.ic_dc_miss_in_l2",
+      "event": "0x64",
+      "umask": "0x09",
+      "cmask": 0,
+      "counters": "0,1,2,3,4,5",
+      "restricted": false,
+      "desc": "core-to-L2 requests that missed L2 (data + instruction, no prefetch)",
+      "file": "cache.json"
+    },
+    {
+      "key": "dmnd_fill_all",
+      "name": "ls_refills_from_sys.ls_mabresp_lcl_l2 + ls_mabresp_lcl_cache + ls_mabresp_lcl_dram + ls_mabresp_rmt_cache + ls_mabresp_rmt_dram",
+      "event": "0x43",
+      "umask": "0x5b",
+      "cmask": 0,
+      "counters": "0,1,2,3,4,5",
+      "restricted": false,
+      "desc": "L1 data cache demand fills from every listed source",
+      "file": "memory.json"
+    },
+    {
+      "key": "l1_dtlb_miss",
+      "name": "ls_l1_d_tlb_miss.all",
+      "event": "0x45",
+      "umask": "0xff",
+      "cmask": 0,
+      "counters": "0,1,2,3,4,5",
+      "restricted": false,
+      "desc": "L1 DTLB misses, all page sizes",
+      "file": "memory.json"
+    },
+    {
+      "key": "l2_itlb_miss",
+      "name": "bp_l1_tlb_miss_l2_tlb_miss",
+      "event": "0x85",
+      "umask": "0xff",
+      "cmask": 0,
+      "counters": "0,1,2,3,4,5",
+      "restricted": false,
+      "desc": "instruction fetches that missed the L1 and L2 ITLB (page walks)",
+      "file": "cache.json"
+    }
+  ]
+}

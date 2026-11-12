@@ -1,0 +1,6 @@
+processor	: 0
+vendor_id	: AuthenticAMD
+cpu family	: 26
+model		: 2
+model name	: AMD EPYC 9175F 16-Core Processor
+stepping	: 1

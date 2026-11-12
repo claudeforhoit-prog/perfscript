@@ -1,0 +1,48 @@
+{
+  "_comment": "CPUID family-model (decimal) -> events/<name>.json. Add a line per new generation after running make_event_json.py (Intel) or make_event_json_amd.py (AMD). '_ranges' is tried when there is no exact line. The exact AMD lines are the CPUID values the Broadcom Compatibility Guide lists for ESXi 8.0 and later (fetched 2026-11-12).",
+  "6-143": "sapphirerapids",
+  "6-207": "emeraldrapids",
+  "6-173": "graniterapids",
+  "6-174": "graniterapids",
+  "23-1": "naples",
+  "23-17": "naples",
+  "23-49": "rome",
+  "25-1": "milan",
+  "25-17": "genoa",
+  "25-160": "genoa",
+  "26-2": "turin",
+  "26-17": "turin",
+  "_ranges": [
+    {
+      "family": 23,
+      "models": "0-47",
+      "cpu": "naples",
+      "note": "AMD Zen 1: Family 17h models 00h-2Fh (kernel event list amdzen1)"
+    },
+    {
+      "family": 23,
+      "models": "48-255",
+      "cpu": "rome",
+      "note": "AMD Zen 2: the other Family 17h models (amdzen2)"
+    },
+    {
+      "family": 25,
+      "models": "0-15,32-47,64-95",
+      "cpu": "milan",
+      "note": "AMD Zen 3: Family 19h models 00h-0Fh, 20h-2Fh, 40h-5Fh (amdzen3)"
+    },
+    {
+      "family": 25,
+      "models": "16-31,48-63,96-255",
+      "cpu": "genoa",
+      "note": "AMD Zen 4: the other Family 19h models (amdzen4). EPYC 9004 = model 11h and A0h, EPYC 8004 = model A0h"
+    },
+    {
+      "family": 26,
+      "models": "0-47,64-79,96-127",
+      "cpu": "turin",
+      "note": "AMD Zen 5: Family 1Ah models 00h-2Fh, 40h-4Fh, 60h-7Fh (amdzen5). EPYC 9005 = model 02h and 11h"
+    }
+  ],
+  "_ranges_source": "Linux kernel tools/perf/pmu-events/arch/x86/mapfile.csv (AuthenticAMD lines)"
+}

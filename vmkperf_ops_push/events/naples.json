@@ -1,0 +1,92 @@
+{
+  "cpu": "naples",
+  "vendor": "amd",
+  "label": "AMD Zen 1: EPYC 7001 Series (CPUID 17.01), Ryzen Embedded V1000 Series (17.11)",
+  "family_model": [
+    "23-1",
+    "23-17"
+  ],
+  "source": "Linux kernel tools/perf/pmu-events/arch/x86/amdzen1 (torvalds/linux master fetched 2026-11-12, last change 8d40f74ebf21 2023-07-11)",
+  "generated": "2026-11-12",
+  "gp_counters": 6,
+  "fixed_cycles": false,
+  "metrics_file": "metrics_amd.json",
+  "events": [
+    {
+      "key": "cycles",
+      "name": "ls_not_halted_cyc",
+      "event": "0x76",
+      "umask": "0x00",
+      "cmask": 0,
+      "counters": "0,1,2,3,4,5",
+      "restricted": false,
+      "desc": "core cycles not in halt",
+      "file": "memory.json"
+    },
+    {
+      "key": "instr",
+      "name": "ex_ret_instr",
+      "event": "0xc0",
+      "umask": "0x00",
+      "cmask": 0,
+      "counters": "0,1,2,3,4,5",
+      "restricted": false,
+      "desc": "retired instructions",
+      "file": "core.json"
+    },
+    {
+      "key": "l2_dtlb_miss",
+      "name": "l2_dtlb_misses",
+      "event": "0x45",
+      "umask": "0xf0",
+      "cmask": 0,
+      "counters": "0,1,2,3,4,5",
+      "restricted": false,
+      "desc": "L1 DTLB misses that also missed the L2 DTLB (page walks)",
+      "file": "recommended.json"
+    },
+    {
+      "key": "l2_miss",
+      "name": "l2_cache_req_stat.ic_dc_miss_in_l2",
+      "event": "0x64",
+      "umask": "0x09",
+      "cmask": 0,
+      "counters": "0,1,2,3,4,5",
+      "restricted": false,
+      "desc": "core-to-L2 requests that missed L2 (data + instruction, no prefetch)",
+      "file": "cache.json"
+    },
+    {
+      "key": "l1_dtlb_miss",
+      "name": "ls_l1_d_tlb_miss.all",
+      "event": "0x45",
+      "umask": "0xff",
+      "cmask": 0,
+      "counters": "0,1,2,3,4,5",
+      "restricted": false,
+      "desc": "L1 DTLB misses, all page sizes",
+      "file": "memory.json"
+    },
+    {
+      "key": "l2_itlb_miss",
+      "name": "l2_itlb_misses",
+      "event": "0x85",
+      "umask": "0x07",
+      "cmask": 0,
+      "counters": "0,1,2,3,4,5",
+      "restricted": false,
+      "desc": "instruction fetches that missed the L1 and L2 ITLB (page walks)",
+      "file": "recommended.json"
+    }
+  ],
+  "log_keys": [
+    "IPC",
+    "L2_DTLB_Miss_PTI",
+    "L2_Miss_PTI",
+    "L1_DTLB_Miss_PTI"
+  ],
+  "no_event_in_list": [
+    "dc_fill_mem",
+    "dc_fill_all"
+  ]
+}
