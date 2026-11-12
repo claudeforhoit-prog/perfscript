@@ -10,7 +10,6 @@
   "generated": "2026-11-12",
   "gp_counters": 6,
   "fixed_cycles": false,
-  "metrics_file": "metrics_amd.json",
   "events": [
     {
       "key": "cycles",
@@ -33,83 +32,9 @@
       "restricted": false,
       "desc": "retired instructions",
       "file": "core.json"
-    },
-    {
-      "key": "l2_dtlb_miss",
-      "name": "ls_l1_d_tlb_miss.all_l2_miss",
-      "event": "0x45",
-      "umask": "0xf0",
-      "cmask": 0,
-      "counters": "0,1,2,3,4,5",
-      "restricted": false,
-      "desc": "L1 DTLB misses that also missed the L2 DTLB (page walks)",
-      "file": "memory.json"
-    },
-    {
-      "key": "dc_fill_mem",
-      "name": "ls_any_fills_from_sys.dram_io_all",
-      "event": "0x44",
-      "umask": "0x48",
-      "cmask": 0,
-      "counters": "0,1,2,3,4,5",
-      "restricted": false,
-      "desc": "L1 data cache fills from DRAM or MMIO (any NUMA node)",
-      "file": "cache.json"
-    },
-    {
-      "key": "l2_miss",
-      "name": "l2_cache_req_stat.ic_dc_miss_in_l2",
-      "event": "0x64",
-      "umask": "0x09",
-      "cmask": 0,
-      "counters": "0,1,2,3,4,5",
-      "restricted": false,
-      "desc": "core-to-L2 requests that missed L2 (data + instruction, no prefetch)",
-      "file": "cache.json"
-    },
-    {
-      "key": "dc_fill_all",
-      "name": "ls_any_fills_from_sys.all",
-      "event": "0x44",
-      "umask": "0xff",
-      "cmask": 0,
-      "counters": "0,1,2,3,4,5",
-      "restricted": false,
-      "desc": "L1 data cache fills from every source",
-      "file": "cache.json"
-    },
-    {
-      "key": "l1_dtlb_miss",
-      "name": "ls_l1_d_tlb_miss.all",
-      "event": "0x45",
-      "umask": "0xff",
-      "cmask": 0,
-      "counters": "0,1,2,3,4,5",
-      "restricted": false,
-      "desc": "L1 DTLB misses, all page sizes",
-      "file": "memory.json"
-    },
-    {
-      "key": "l2_itlb_miss",
-      "name": "bp_l1_tlb_miss_l2_tlb_miss.all",
-      "event": "0x85",
-      "umask": "0x0f",
-      "cmask": 0,
-      "counters": "0,1,2,3,4,5",
-      "restricted": false,
-      "desc": "instruction fetches that missed the L1 and L2 ITLB (page walks)",
-      "file": "memory.json"
-    },
-    {
-      "key": "dc_fill_l3",
-      "name": "ls_any_fills_from_sys.local_ccx",
-      "event": "0x44",
-      "umask": "0x02",
-      "cmask": 0,
-      "counters": "0,1,2,3,4,5",
-      "restricted": false,
-      "desc": "L1 data cache fills from the L3, or another core's L2, of the same CCX",
-      "file": "cache.json"
     }
+  ],
+  "log_keys": [
+    "IPC"
   ]
 }

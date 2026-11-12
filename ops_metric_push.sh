@@ -5,67 +5,48 @@ test "$?BASH_VERSION" = "0" && test -f "$0" && exec /bin/bash "$0" $argv:q
 test "$?BASH_VERSION" = "0" && echo "ops_metric_push.sh: do not source it. Run:  bash ops_metric_push.sh [options]"
 if false; then :; fi
 # ============================================================
-# ops_metric_push.sh  v4.7 (2026-11-12)  English
+# ops_metric_push.sh  v4.8 (2026-11-12)  English
 #
-# v4.7: L3 contention metrics for Intel guests  (group "Guest Perf Intel"),
-#       metric lines that are collected only when named  (collect=named)
-#   1) Four more events on Intel Xeon: l3_load_miss (MEM_LOAD_RETIRED.L3_MISS),
-#      l3_miss_stall (CYCLE_ACTIVITY.STALLS_L3_MISS on Skylake-SP and Ice
-#      Lake-SP, MEMORY_ACTIVITY.STALLS_L3_MISS from Sapphire Rapids on),
-#      walk_pending (DTLB_LOAD_MISSES.WALK_PENDING) and ref-cycles. Ten metric
-#      lines use them together with events the collector already had:
-#      cache-misses, instructions, cycles and dTLB-load-misses, which the
-#      kernel maps to DTLB_LOAD_MISSES.WALK_COMPLETED on these CPUs.
-#      Purpose: put a number on what L3 contention costs a VM, by comparing a
-#      run alone with a run beside another VM: L3 misses per 1000
-#      instructions, the share of cycles stalled on an L3 miss, the stall
-#      cycles per miss, the cycles per page walk.
-#      The run line is under "L3 contention on Intel Xeon" in [How to run].
-#   2) Intel CPU classes intel_skx, intel_icx, intel_spr, intel_emr and
+# v4.8: the metric table is the designed one again  (26 metrics)
+#   The [METRIC TABLE] holds the 26 metrics of v4.1 again, line for line:
+#   Guest Perf Generic 12, Guest Perf Extended 5, Guest THP 9. Every line is
+#   collected on every CPU, with the perf event names of that table.
+#   Taken out:
+#     - the "Guest Perf AMD" lines that v4.2, v4.3 and v4.6 had added (19)
+#     - the "Guest Perf Intel" lines that v4.7 had added (10)
+#     - the cpu!=amd_zen word that v4.2 / v4.3 had put on 14 of the 26 lines
+#     - every line of the [PERF EVENT ALIASES] table (raw event codes)
+#   Result: a run asks for the same 12 perf events on Intel and on AMD, as
+#   v4.1 did, and the CSV has the 26 metric columns of v4.1 again.
+#   On an AMD CPU the kernel of the guest decides which event each of these
+#   names counts; see [perf event names on AMD] below.
+#   Kept from v4.2 .. v4.7: the resident perf and the multiplexing display,
+#   --perf-fit, the config file, --target bm, the CPU class on the banner.
+#   The table words cpu=, cpu!= and collect=named and the alias table still
+#   work, but no line uses them.
+#   The versions with the removed lines stay in Git under their tags
+#   (ops_metric_push-v4.7 and earlier).
+#
+# v4.7: Intel CPU classes on the banner, the table word collect=named,
+#       --collect name checks.  [its ten "Guest Perf Intel" lines: removed in v4.8]
+#   1) Intel CPU classes intel_skx, intel_icx, intel_spr, intel_emr and
 #      intel_gnr, from the CPUID model as in the kernel's intel-family.h:
 #        intel_skx  model 55h        Skylake-SP, Cascade Lake-SP, Cooper Lake-SP
 #        intel_icx  models 6Ah 6Ch   Ice Lake-SP, Ice Lake-D
 #        intel_spr  model 8Fh        Sapphire Rapids
 #        intel_emr  model CFh        Emerald Rapids
 #        intel_gnr  models ADh AEh   Granite Rapids, Granite Rapids-D
-#      The raw event codes differ per generation, so the alias table needs
-#      the class. Any other Intel model keeps the class "intel", and cpu=intel
-#      in the tables still means every Intel CPU. On the five generations the
-#      banner, --list and the support log now show the generation class
-#      (v4.6 showed "intel").
-#   3) collect=named: a metric-table line that ends with this word is
-#      collected only when its name is given with --collect. It is not part
-#      of --collect both / perf, so a run without --collect asks for the same
-#      events as before. The ten Intel lines carry it, and so do the three
-#      L1D_Fill_L3 lines of v4.6: a default run on AMD Zen 3-5 is back to the
-#      8 events of v4.5 (v4.6: 9). Reason: every event added to the default
-#      run lowers the share of time the other events are counted.
-#   4) --collect with names: names that belong to another CPU class are
+#      Any other Intel model keeps the class "intel", and cpu=intel in the
+#      tables means every Intel CPU. The banner, --list and the support log
+#      show the class.
+#   2) collect=named: a metric-table line that ends with this word is
+#      collected only when its name is given with --collect.
+#   3) --collect with names: names that belong to another CPU class are
 #      listed in a warning at start. When none of the names applies to this
 #      CPU the run ends with an error instead of writing empty rows.
-#   CSV: ten columns follow the v4.6 columns, which keep their positions.
-#   Collection itself is as in v4.6.
 #
-# v4.6: L1D fills from L3 on AMD Zen 3, Zen 4 and Zen 5  (L1D_Fill_L3 lines)
-#   One more event, dc_fill_l3 (PMCx044 unit mask 0x02), and three metric
-#   lines: L1D_Fill_L3_PTI, L1D_Fill_L3_Pct, L1D_Fill_L3. The event counts
-#   the L1D fills whose data came from the L3 cache, or from the L2 cache of
-#   another core, in the CCX of this core (CCX = core complex: the cores
-#   that share one L3 cache).
-#   Purpose: an AMD host under ESXi has no LLC occupancy monitoring, so L3
-#   contention between VMs is looked for inside the guest. The expected
-#   sign: while another VM takes L3 space, L1D_Fill_L3 of this VM goes down
-#   and L1D_Fill_Mem (fills from DRAM) goes up by about the same count.
-#   The run line is under "L3 contention check" in [How to run].
-#   The three lines are the last lines of the metric table. The CSV columns
-#   of v4.5 keep their positions (three columns follow them), and --perf-fit
-#   keeps the same events as v4.5: dc_fill_l3 is the first event it removes.
-#   Without --perf-fit a Zen 3-5 guest asked for 9 events in v4.6 (v4.5: 8).
-#   [v4.7: the three lines are collect=named lines, see above; the default
-#   run asks for 8 events again, and the Intel lines follow them in the table.]
-#   Not on Zen 2: unit mask 0x02 of its event PMCx043 also counts fills from
-#   the caches of other CCXs on the same die. The Zen 1 list has no
-#   fill-by-source event. Collection itself is as in v4.5.
+# v4.6: three L1D_Fill_L3 metric lines for AMD Zen 3, Zen 4 and Zen 5.
+#   [removed in v4.8]
 #
 # v4.5: bare-metal hosts  (--target bm)
 #   The same collection on a host that is not a VM. The name (--name, default
@@ -86,7 +67,7 @@ if false; then :; fi
 #   keys only. The file name no longer carries the version: the banner shows it.
 #   Collection is as in v4.3.
 #
-# v4.3: AMD events for every Zen generation that ESXi 8.0 and later support
+# v4.3: CPU classes for every AMD Zen generation that ESXi 8.0 and later support
 #   CPU classes amd_zen1 .. amd_zen5 (amd_zen = any of them). The class comes
 #   from the CPUID family and model, with the ranges the Linux kernel uses to
 #   choose its per-generation event list
@@ -96,17 +77,10 @@ if false; then :; fi
 #     amd_zen3  Family 19h, models 00h-0Fh 20h-2Fh 40h-5Fh  EPYC 7003
 #     amd_zen4  Family 19h, other models                    EPYC 9004, EPYC 8004
 #     amd_zen5  Family 1Ah, models 00h-2Fh 40h-4Fh 60h-7Fh  EPYC 9005
-#   The alias table has a CPU class column, because one short name can have
-#   a different event code per generation (l2_itlb_miss). The L1D fill events
-#   (PMCx044, any fill) are in the kernel event lists from Zen 3 on, so the
-#   L1D_Fill_* lines are n/a on Zen 1 and Zen 2. The Zen 2 list has the
-#   demand fill event PMCx043 instead: Zen 2 gets the L1D_Demand_Fill_* lines,
-#   which count demand fills only (prefetch fills are separate events there).
-#   The Zen 1 list has no fill-by-source event. The generic cache/TLB lines
-#   are not used on any amd_zen class. Collection itself is as in v4.2.
+#   The banner shows the class. The "Guest Perf AMD" metric lines and the raw
+#   AMD event codes that came with these classes: removed in v4.8.
 #
-# v4.2: perf started once instead of every minute, multiplexing check,
-#       AMD Zen 5 (Turin) events
+# v4.2: perf started once instead of every minute, multiplexing check
 #   1) perf is started ONCE and stays up ("resident"). `perf stat -I <ms>`
 #      prints the count deltas of every interval and the collector only reads
 #      them. v4.1 started a new `perf stat ... sleep 55` every minute, which
@@ -121,13 +95,8 @@ if false; then :; fi
 #      that share. --perf-fit keeps only as many events as the counters hold
 #      (in metric-table order), so no event is time-shared.
 #   3) CPU-specific table lines (cpu=<class> / cpu!=<class>) and an event
-#      alias table with raw event codes. AMD Zen 5 (Family 1Ah: Turin, Turin
-#      Dense) gets the group "Guest Perf AMD". Codes and names come from the
-#      Linux kernel event list for Zen 5,
-#      tools/perf/pmu-events/arch/x86/amdzen5/*.json (maintained by AMD).
-#      The generic cache/TLB lines are not used on Zen 5: there the kernel
-#      maps cache-references/cache-misses to L2 events and has no LLC event,
-#      so the same metric name would not mean the same thing as on Intel.
+#      alias table for raw event codes. The mechanisms remain; the AMD lines
+#      that used them were removed in v4.8.
 #   4) No associative arrays: runs on bash 3.2 and later (v4.1 needed bash 4).
 #   5) Rows keep the v4.1 stamp, the START of the interval they cover, but are
 #      written when that interval ends (v4.1: 55 s into it). The first row
@@ -172,8 +141,6 @@ if false; then :; fi
 #   <object> > Custom Metrics > Guest Perf Generic  > IPC_Ratio / ...
 #                             > Guest Perf Extended > ITLB_MissRate_Pct / ...
 #                             > Guest THP           > Thp_Coverage_Pct / ...
-#                             > Guest Perf AMD      > L2_DTLB_Miss_PTI / ...   (AMD Zen)
-#                             > Guest Perf Intel    > L3_Load_Miss_PTI / ...   (Intel Xeon, by name)
 #
 # ------------------------------------------------------------
 # [How to run]
@@ -209,48 +176,6 @@ if false; then :; fi
 #      Bare-metal host (the Ops object is created when there is none):
 #        nohup bash ops_metric_push.sh --target bm > /tmp/ops_push.log 2>&1 &
 #        nohup bash ops_metric_push.sh --target bm >& /tmp/ops_push.log &      # csh/tcsh
-#
-#      L3 contention check on AMD Zen 3-5  [v4.6]. The L1D_Fill_L3 lines are
-#      collect=named lines [v4.7]: only a run that names them collects them.
-#      The named metrics need six events (instructions, cycles, l2_dtlb_miss,
-#      dc_fill_mem, l2_miss, dc_fill_l3), as many as a Zen core has counters,
-#      so none is time-shared:
-#        nohup bash ops_metric_push.sh --collect IPC_Ratio,Instructions,Cycles,L2_DTLB_Miss_PTI,L1D_Fill_Mem_PTI,L2_Miss_PTI,L2_DTLB_Miss,L1D_Fill_Mem,L2_Miss,L1D_Fill_L3_PTI,L1D_Fill_L3 > /tmp/ops_push.log 2>&1 &
-#        nohup bash ops_metric_push.sh --collect IPC_Ratio,Instructions,Cycles,L2_DTLB_Miss_PTI,L1D_Fill_Mem_PTI,L2_Miss_PTI,L2_DTLB_Miss,L1D_Fill_Mem,L2_Miss,L1D_Fill_L3_PTI,L1D_Fill_L3 >& /tmp/ops_push.log &      # csh/tcsh
-#      Do not add --perf-fit here: dc_fill_l3 is the first event it removes.
-#      dc_fill_all is not among the six, so L1D_Fill_All, L1D_Fill_Mem_Pct and
-#      L1D_Fill_L3_Pct stay empty in this run. For the shares, name those three
-#      instead of the two page-walk metrics (L2_DTLB_Miss_PTI, L2_DTLB_Miss).
-#      When the log shows "perf run" below 100, the VM has fewer than six free
-#      counters; the NMI watchdog, for example, holds one. Turn it off first
-#      (the setting returns to its boot value after a reboot):
-#        sudo sysctl -w kernel.nmi_watchdog=0
-#      If it has to stay on, leave L2_DTLB_Miss_PTI and L2_DTLB_Miss out of the
-#      list: five events. Keep L2_Miss: L2 misses are the requests that went on
-#      to the L3, and they show whether two runs put the same load on it.
-#
-#      L3 contention on Intel Xeon (Skylake-SP .. Granite Rapids)  [v4.7].
-#      The named metrics need instructions, cycles and ref-cycles, which have
-#      fixed counters, and six events on general counters (cache-references,
-#      cache-misses, l3_load_miss, l3_miss_stall, dTLB-load-misses,
-#      walk_pending):
-#        nohup bash ops_metric_push.sh --collect IPC_Ratio,Instructions,Cycles,Cache_MissRate_Pct,Cache_Ref,Cache_Miss,LLC_Miss_PTI,L3_Load_Miss_PTI,L3_Load_Miss,L3_Miss_Stall_Pct,L3_Miss_Stall,L3_Miss_Stall_Per_Miss,DTLB_Load_Miss,DTLB_Walk_Pending,DTLB_Walk_Cycles,Ref_Cycles,Cycles_Per_RefCycle > /tmp/ops_push.log 2>&1 &
-#        nohup bash ops_metric_push.sh --collect IPC_Ratio,Instructions,Cycles,Cache_MissRate_Pct,Cache_Ref,Cache_Miss,LLC_Miss_PTI,L3_Load_Miss_PTI,L3_Load_Miss,L3_Miss_Stall_Pct,L3_Miss_Stall,L3_Miss_Stall_Per_Miss,DTLB_Load_Miss,DTLB_Walk_Pending,DTLB_Walk_Cycles,Ref_Cycles,Cycles_Per_RefCycle >& /tmp/ops_push.log &      # csh/tcsh
-#      Do not add --perf-fit here: when counters are short it removes the new
-#      events first (walk_pending, then l3_miss_stall, then l3_load_miss).
-#      Judge by the "multiplexing" line of the banner and by "perf run" in the
-#      log: 100 = no event is time-shared.
-#      l3_load_miss, l3_miss_stall, dTLB-load-misses and walk_pending count on
-#      general counters 0-3 only (Intel event lists), so these four take all
-#      of them. A guest with four general counters in all: leave the four LLC
-#      metrics out (Cache_MissRate_Pct, Cache_Ref, Cache_Miss, LLC_Miss_PTI).
-#      The NMI watchdog is one more cycles event on every CPU (kernel source,
-#      kernel/watchdog_perf.c). With it on, one of the two cycles events
-#      counts on a general counter. To turn it off until the next reboot:
-#        sudo sysctl -w kernel.nmi_watchdog=0
-#      Do not start the host collector (vmkperf) for the time of this run: a
-#      physical counter in use by the host is not available to the guest
-#      (Broadcom KB 344161).
 #
 #      CSV only (no Ops connection) / push + CSV together:
 #        nohup bash ops_metric_push.sh --mode file --out /data/perf > /tmp/ops_push.log 2>&1 &
@@ -364,6 +289,23 @@ if false; then :; fi
 #   - --collect thp uses no counter at all.
 #   The NMI watchdog (kernel.nmi_watchdog=1) holds one counter by itself.
 #
+# [perf event names on AMD]  The metric table uses perf event names. On an
+#   AMD CPU the kernel maps them to AMD events that are not the same thing as
+#   on Intel (Linux kernel, arch/x86/events/amd/core.c, family 17h and later):
+#     cache-references       PMCx060 umask 0xff   requests to the L2 cache
+#     cache-misses           PMCx064 umask 0x09   L2 cache misses
+#     L1-dcache-loads        PMCx040              data cache accesses
+#     L1-dcache-load-misses  PMCx060 umask 0xc8   L2 accesses from data cache misses
+#     dTLB-loads             PMCx045 umask 0xff   L1 DTLB misses (L2 DTLB accesses)
+#     dTLB-load-misses       PMCx045 umask 0xf0   L2 DTLB misses (page walks)
+#     iTLB-loads             PMCx084              L1 ITLB misses with an L2 ITLB hit
+#     iTLB-load-misses       PMCx085 umask 0xff   L1 ITLB misses with an L2 ITLB miss
+#     LLC-load-misses, LLC-store-misses           no event: not supported
+#   So on AMD, Cache_Ref, Cache_Miss and Cache_MissRate_Pct are L2 cache
+#   values, DTLB_Loads and ITLB_Loads are TLB miss counts of the first level,
+#   and LLC_Load_Miss and LLC_Store_Miss are excluded by the support probe.
+#   cycles and instructions mean the same as on Intel.
+#
 # [Account] Only Ops LOCAL accounts work. SSO/VIDB accounts cannot get
 #   tokens through this API.
 #
@@ -381,52 +323,48 @@ set -u
 #        dspct=delta-based success rate: Δs1/(Δs1+Δs2)*100(%) (success rate for this 1 minute)
 #        * delta/dspct need a previous value, so the first collection minute is skipped
 #        * delta activity 0 -> delta pushes 0 (no-activity info); dspct denominator 0 -> -1, excluded
-#        pti=s1/s2*1000, three decimals (per thousand instructions, the unit AMD uses
-#        for its recommended metrics; suffix _PTI)
+#        pti=s1/s2*1000, three decimals (per thousand instructions; suffix _PTI).
+#        No line of the current table uses it.
 # src  : perf:<event> | meminfo:<key> | vmstat:<key>
 #        (perf: events are probed for support at startup. If unsupported,
 #         that line and any other line referencing the event are all
 #         excluded automatically)
 #        perf:<event> is a perf event name, or a short name from the
-#        [PERF EVENT ALIASES] table below (raw event codes).
+#        [PERF EVENT ALIASES] table below (raw event codes; empty in v4.8).
 # order: with --perf-fit the events are kept in the order they first appear in this
-#        table, so put the lines you need most first. The AMD lines start with the
-#        page-walk and memory-fill events for that reason.
-#        New lines go to the end of the table, so the CSV columns of earlier versions
-#        keep their positions: the L1D_Fill_L3 lines [v4.6], then the Guest Perf Intel
-#        lines [v4.7].
+#        table, so put the lines you need most first.
 # cpu  : optional word after the description, cpu=<class> or cpu!=<class>.
 #        The line is used only on (cpu=) or only off (cpu!=) that CPU class.
 #        Classes: intel | intel_skx | intel_icx | intel_spr | intel_emr | intel_gnr |
 #                 amd_zen1 .. amd_zen5 | amd | other   (shown by --list)
-#        intel stands for every Intel CPU: the five generation classes and any other
-#        Intel model. amd_zen stands for any of amd_zen1 .. amd_zen5. Several classes
-#        are joined with commas: cpu=amd_zen3,amd_zen4,amd_zen5
-#        A line that does not apply keeps its CSV column, empty.
-# collect=named : optional word after the description  [v4.7]. The line is collected
-#        only when its name is given with --collect <name,name,...>. --collect both and
-#        --collect perf leave it out, so it adds no event to a default run. Used for the
-#        lines of the L3 contention checks, whose events would otherwise take counters
-#        away from the default set. Its CSV column is always there, empty unless named.
+#        intel stands for every Intel CPU, amd_zen for any of amd_zen1 .. amd_zen5.
+#        Several classes are joined with commas. A line that does not apply keeps
+#        its CSV column, empty.
+#        No line of the v4.8 table has this word: every line is used on every CPU.
+# collect=named : optional word after the description. The line is collected
+#        only when its name is given with --collect <name,name,...>; --collect both
+#        and --collect perf leave it out. Its CSV column is always there.
+#        No line of the v4.8 table has this word.
+# v4.8: the 26 lines below are the lines of v4.1 (the designed metric set).
 # ==========================================================
 METRIC_TABLE="
 Guest Perf Generic|IPC_Ratio            ratio  perf:instructions           perf:cycles                 instructions/cycle
-Guest Perf Generic|Cache_MissRate_Pct   pct    perf:cache-misses           perf:cache-references       LLC miss rate  cpu!=amd_zen
-Guest Perf Generic|L1D_MissRate_Pct     pct    perf:L1-dcache-load-misses  perf:L1-dcache-loads        L1D miss rate  cpu!=amd_zen
-Guest Perf Generic|DTLB_MissRate_Pct    pct    perf:dTLB-load-misses       perf:dTLB-loads             dTLB miss rate  cpu!=amd_zen
+Guest Perf Generic|Cache_MissRate_Pct   pct    perf:cache-misses           perf:cache-references       LLC miss rate
+Guest Perf Generic|L1D_MissRate_Pct     pct    perf:L1-dcache-load-misses  perf:L1-dcache-loads        L1D miss rate
+Guest Perf Generic|DTLB_MissRate_Pct    pct    perf:dTLB-load-misses       perf:dTLB-loads             dTLB miss rate
 Guest Perf Generic|Instructions         raw    perf:instructions           -                           instruction count
 Guest Perf Generic|Cycles               raw    perf:cycles                 -                           cycle count
-Guest Perf Generic|Cache_Ref            raw    perf:cache-references        -                           LLC references  cpu!=amd_zen
-Guest Perf Generic|Cache_Miss           raw    perf:cache-misses           -                           LLC misses  cpu!=amd_zen
-Guest Perf Generic|L1D_Loads            raw    perf:L1-dcache-loads        -                           L1D loads  cpu!=amd_zen
-Guest Perf Generic|L1D_Load_Miss        raw    perf:L1-dcache-load-misses  -                           L1D load misses  cpu!=amd_zen
-Guest Perf Generic|DTLB_Loads           raw    perf:dTLB-loads             -                           dTLB loads  cpu!=amd_zen
-Guest Perf Generic|DTLB_Load_Miss       raw    perf:dTLB-load-misses       -                           dTLB load misses  cpu!=amd_zen
-Guest Perf Extended|ITLB_MissRate_Pct   pct    perf:iTLB-load-misses       perf:iTLB-loads             iTLB miss rate  cpu!=amd_zen
-Guest Perf Extended|ITLB_Loads          raw    perf:iTLB-loads             -                           iTLB loads  cpu!=amd_zen
-Guest Perf Extended|ITLB_Load_Miss      raw    perf:iTLB-load-misses       -                           iTLB load misses  cpu!=amd_zen
-Guest Perf Extended|LLC_Load_Miss       raw    perf:LLC-load-misses        -                           LLC load misses  cpu!=amd_zen
-Guest Perf Extended|LLC_Store_Miss      raw    perf:LLC-store-misses       -                           LLC store misses  cpu!=amd_zen
+Guest Perf Generic|Cache_Ref            raw    perf:cache-references        -                           LLC references
+Guest Perf Generic|Cache_Miss           raw    perf:cache-misses           -                           LLC misses
+Guest Perf Generic|L1D_Loads            raw    perf:L1-dcache-loads        -                           L1D loads
+Guest Perf Generic|L1D_Load_Miss        raw    perf:L1-dcache-load-misses  -                           L1D load misses
+Guest Perf Generic|DTLB_Loads           raw    perf:dTLB-loads             -                           dTLB loads
+Guest Perf Generic|DTLB_Load_Miss       raw    perf:dTLB-load-misses       -                           dTLB load misses
+Guest Perf Extended|ITLB_MissRate_Pct   pct    perf:iTLB-load-misses       perf:iTLB-loads             iTLB miss rate
+Guest Perf Extended|ITLB_Loads          raw    perf:iTLB-loads             -                           iTLB loads
+Guest Perf Extended|ITLB_Load_Miss      raw    perf:iTLB-load-misses       -                           iTLB load misses
+Guest Perf Extended|LLC_Load_Miss       raw    perf:LLC-load-misses        -                           LLC load misses
+Guest Perf Extended|LLC_Store_Miss      raw    perf:LLC-store-misses       -                           LLC store misses
 Guest THP|Thp_Coverage_Pct              pct    meminfo:AnonHugePages       meminfo:AnonPages           THP coverage (instant)
 Guest THP|Thp_AllocSuccess_Pct          dspct  vmstat:thp_fault_alloc      vmstat:thp_fault_fallback   1-min delta-based fault success rate
 Guest THP|Thp_CollapseSuccess_Pct       dspct  vmstat:thp_collapse_alloc   vmstat:thp_collapse_alloc_failed  1-min delta-based collapse success rate
@@ -436,97 +374,20 @@ Guest THP|Thp_Fault_Alloc_Delta          delta  vmstat:thp_fault_alloc     -    
 Guest THP|Thp_Fault_Fallback_Delta       delta  vmstat:thp_fault_fallback  -                           fallbacks in 1 min
 Guest THP|Thp_Collapse_Alloc_Delta       delta  vmstat:thp_collapse_alloc  -                           collapse successes in 1 min
 Guest THP|Thp_Collapse_Failed_Delta      delta  vmstat:thp_collapse_alloc_failed  -                    collapse failures in 1 min
-Guest Perf AMD|L2_DTLB_Miss_PTI         pti    perf:l2_dtlb_miss           perf:instructions           L2 DTLB misses (page walks) per 1000 instr  cpu=amd_zen
-Guest Perf AMD|L1D_Fill_Mem_PTI         pti    perf:dc_fill_mem            perf:instructions           L1D fills from DRAM or MMIO per 1000 instr  cpu=amd_zen3,amd_zen4,amd_zen5
-Guest Perf AMD|L1D_Demand_Fill_Mem_PTI  pti    perf:dmnd_fill_mem          perf:instructions           L1D demand fills from DRAM or IO per 1000 instr (Zen 2)  cpu=amd_zen2
-Guest Perf AMD|L2_Miss_PTI              pti    perf:l2_miss                perf:instructions           L2 misses (IC+DC requests, no prefetch) per 1000 instr  cpu=amd_zen
-Guest Perf AMD|L1D_Fill_Mem_Pct         pct    perf:dc_fill_mem            perf:dc_fill_all            share of L1D fills that came from DRAM or MMIO  cpu=amd_zen3,amd_zen4,amd_zen5
-Guest Perf AMD|L1D_Demand_Fill_Mem_Pct  pct    perf:dmnd_fill_mem          perf:dmnd_fill_all          share of L1D demand fills that came from DRAM or IO (Zen 2)  cpu=amd_zen2
-Guest Perf AMD|L1_DTLB_Miss_PTI         pti    perf:l1_dtlb_miss           perf:instructions           L1 DTLB misses per 1000 instr  cpu=amd_zen
-Guest Perf AMD|L2_ITLB_Miss_PTI         pti    perf:l2_itlb_miss           perf:instructions           L2 ITLB misses (page walks) per 1000 instr  cpu=amd_zen
-Guest Perf AMD|L2_DTLB_Miss             raw    perf:l2_dtlb_miss           -                           L2 DTLB misses (page walks)  cpu=amd_zen
-Guest Perf AMD|L1D_Fill_Mem             raw    perf:dc_fill_mem            -                           L1D fills from DRAM or MMIO  cpu=amd_zen3,amd_zen4,amd_zen5
-Guest Perf AMD|L1D_Demand_Fill_Mem      raw    perf:dmnd_fill_mem          -                           L1D demand fills from DRAM or IO (Zen 2)  cpu=amd_zen2
-Guest Perf AMD|L2_Miss                  raw    perf:l2_miss                -                           L2 misses (IC+DC requests, no prefetch)  cpu=amd_zen
-Guest Perf AMD|L1D_Fill_All             raw    perf:dc_fill_all            -                           L1D fills from every source  cpu=amd_zen3,amd_zen4,amd_zen5
-Guest Perf AMD|L1D_Demand_Fill_All      raw    perf:dmnd_fill_all          -                           L1D demand fills from every listed source (Zen 2)  cpu=amd_zen2
-Guest Perf AMD|L1_DTLB_Miss             raw    perf:l1_dtlb_miss           -                           L1 DTLB misses  cpu=amd_zen
-Guest Perf AMD|L2_ITLB_Miss             raw    perf:l2_itlb_miss           -                           L2 ITLB misses (page walks)  cpu=amd_zen
-Guest Perf AMD|L1D_Fill_L3_PTI          pti    perf:dc_fill_l3             perf:instructions           L1D fills from L3 or another L2 of the same CCX per 1000 instr  cpu=amd_zen3,amd_zen4,amd_zen5  collect=named
-Guest Perf AMD|L1D_Fill_L3_Pct          pct    perf:dc_fill_l3             perf:dc_fill_all            share of L1D fills that came from L3 or another L2 of the same CCX  cpu=amd_zen3,amd_zen4,amd_zen5  collect=named
-Guest Perf AMD|L1D_Fill_L3              raw    perf:dc_fill_l3             -                           L1D fills from L3 or another L2 of the same CCX  cpu=amd_zen3,amd_zen4,amd_zen5  collect=named
-Guest Perf Intel|LLC_Miss_PTI           pti    perf:cache-misses           perf:instructions           LLC misses per 1000 instr  cpu=intel_skx,intel_icx,intel_spr,intel_emr,intel_gnr  collect=named
-Guest Perf Intel|Cycles_Per_RefCycle    ratio  perf:cycles                 perf:ref-cycles             core cycles per reference cycle  cpu=intel_skx,intel_icx,intel_spr,intel_emr,intel_gnr  collect=named
-Guest Perf Intel|L3_Load_Miss_PTI       pti    perf:l3_load_miss           perf:instructions           retired loads that missed the L3 per 1000 instr  cpu=intel_skx,intel_icx,intel_spr,intel_emr,intel_gnr  collect=named
-Guest Perf Intel|L3_Miss_Stall_Pct      pct    perf:l3_miss_stall          perf:cycles                 share of cycles stalled while an L3-miss load is outstanding  cpu=intel_skx,intel_icx,intel_spr,intel_emr,intel_gnr  collect=named
-Guest Perf Intel|L3_Miss_Stall_Per_Miss ratio  perf:l3_miss_stall          perf:l3_load_miss           stall cycles per retired load that missed the L3  cpu=intel_skx,intel_icx,intel_spr,intel_emr,intel_gnr  collect=named
-Guest Perf Intel|DTLB_Walk_Cycles       ratio  perf:walk_pending           perf:dTLB-load-misses       page-walk cycles per completed page walk (loads)  cpu=intel_skx,intel_icx,intel_spr,intel_emr,intel_gnr  collect=named
-Guest Perf Intel|Ref_Cycles             raw    perf:ref-cycles             -                           reference cycles  cpu=intel_skx,intel_icx,intel_spr,intel_emr,intel_gnr  collect=named
-Guest Perf Intel|L3_Load_Miss           raw    perf:l3_load_miss           -                           retired loads that missed the L3  cpu=intel_skx,intel_icx,intel_spr,intel_emr,intel_gnr  collect=named
-Guest Perf Intel|L3_Miss_Stall          raw    perf:l3_miss_stall          -                           cycles stalled while an L3-miss load is outstanding  cpu=intel_skx,intel_icx,intel_spr,intel_emr,intel_gnr  collect=named
-Guest Perf Intel|DTLB_Walk_Pending      raw    perf:walk_pending           -                           page-walk cycles for loads, summed over the walks in progress  cpu=intel_skx,intel_icx,intel_spr,intel_emr,intel_gnr  collect=named
 "
 
 # ==========================================================
-# * [PERF EVENT ALIASES] *  raw event codes behind the short names used above
+# * [PERF EVENT ALIASES] *  raw event codes behind short names  (empty in v4.8)
 # ----------------------------------------------------------
 # One line = <short name>  <CPU classes>  <perf event string>  <event code, vendor event name>
 # The short name is what perf prints (name=...), so keep both the same.
 # CPU classes: written as after cpu= in the metric table (amd_zen = every Zen
 #   class, intel = every Intel CPU, a comma list, or "any"). A short name may
 #   have several lines; the first line whose classes include this CPU is used.
-# AMD: config = (umask << 8) | event code  (core events with a code up to 0xFF).
-# Source of the AMD lines: Linux kernel, tools/perf/pmu-events/arch/x86/amdzen1
-#   .. amdzen5 (one event list per Zen generation, maintained by AMD). Which
-#   CPUID family/model uses which list: tools/perf/pmu-events/arch/x86/mapfile.csv.
-#   PMCx044 (L1D fills by data source, any fill) is listed from Zen 3 on.
-#   Its unit mask bit 0x02 is the source "L3, or another L2, of the same CCX"
-#   (dc_fill_l3). AMD's recommended "fills from within the same CCX" (an event
-#   in the Zen 3 list, a metric in the Zen 4-5 lists) uses 0x03, which adds
-#   the fills from the core's own L2; it is not used here.
-#   PMCx043 (L1D demand fills by data source) is what the Zen 2 list has. Its
-#   sub-events are one unit-mask bit per source; dmnd_fill_mem sets the two
-#   DRAM/IO bits (0x08 this die, 0x40 another die), dmnd_fill_all the five
-#   listed bits (0x01 0x02 0x08 0x10 0x40). Bit 0x02 there is "local CCX, or
-#   remote CCX on this die", so Zen 2 has no dc_fill_l3 line.
-#   PMCx085 (L2 ITLB miss): the unit mask for all page sizes differs per list;
-#   the Zen 1 list has no unit mask on the event itself and AMD's recommended
-#   event l2_itlb_misses (0x07) is used there.
-# Intel [v4.7]: event=, umask= and cmask= are the EventCode, UMask and CounterMask
-#   fields of Intel's event lists (github.com/intel/perfmon: skylakex 1.37,
-#   cascadelakex 1.25, icelakex 1.31, sapphirerapids 1.40, emeraldrapids 1.25,
-#   graniterapids 1.21; which CPUID model uses which list: mapfile.csv there).
-#   Model 55h covers the skylakex and the cascadelakex list; the codes below are
-#   the same in both. The lists give general counters 0-3 as the only counters of
-#   all three coded events, and of DTLB_LOAD_MISSES.WALK_COMPLETED as well, which
-#   is what the kernel counts for dTLB-load-misses on these CPUs
-#   (arch/x86/events/intel/core.c: 0xe08 in the Skylake table, also used for Ice
-#   Lake; 0xe12 in the Golden Cove table, used from Sapphire Rapids on).
-#   l3_miss_stall: the lists from Sapphire Rapids on have the event under two
-#   names; MEMORY_ACTIVITY.STALLS_L3_MISS is used there, the event of the host
-#   collector (vmkperf_ops_push, key l3_stall), so guest and host values compare.
-#   walk_pending on Skylake-SP / Cascade Lake-SP: the list says the duration of
-#   EPT page walks is excluded on that microarchitecture.
-#   ref-cycles has no line here: perf knows the name, and it counts on fixed
-#   counter 2 only (CPU_CLK_UNHALTED.REF_TSC).
+# v4.8: the table has no line. The metric table uses perf event names only,
+#   and the kernel of the guest maps each name to an event of its CPU.
 # ==========================================================
 PERF_ALIAS_TABLE="
-l2_dtlb_miss   amd_zen                      cpu/config=0xf045,name=l2_dtlb_miss/   PMCx045 umask 0xf0  ls_l1_d_tlb_miss.all_l2_miss (Zen 4-5), l2_dtlb_misses (Zen 1-3)
-dc_fill_mem    amd_zen3,amd_zen4,amd_zen5   cpu/config=0x4844,name=dc_fill_mem/    PMCx044 umask 0x48  ls_any_fills_from_sys.dram_io_all (Zen 4-5), l1_data_cache_fills_from_memory (Zen 3)
-l2_miss        amd_zen                      cpu/config=0x0964,name=l2_miss/        PMCx064 umask 0x09  l2_cache_req_stat.ic_dc_miss_in_l2
-dc_fill_all    amd_zen3,amd_zen4,amd_zen5   cpu/config=0xff44,name=dc_fill_all/    PMCx044 umask 0xff  ls_any_fills_from_sys.all (Zen 4-5), l1_data_cache_fills_all (Zen 3)
-dc_fill_l3     amd_zen3,amd_zen4,amd_zen5   cpu/config=0x0244,name=dc_fill_l3/     PMCx044 umask 0x02  ls_any_fills_from_sys.local_ccx (Zen 4-5), ls_any_fills_from_sys.int_cache (Zen 3)
-dmnd_fill_mem  amd_zen2                     cpu/config=0x4843,name=dmnd_fill_mem/  PMCx043 umask 0x48  ls_refills_from_sys.ls_mabresp_lcl_dram + ls_mabresp_rmt_dram
-dmnd_fill_all  amd_zen2                     cpu/config=0x5b43,name=dmnd_fill_all/  PMCx043 umask 0x5b  ls_refills_from_sys, the five listed sources
-l1_dtlb_miss   amd_zen                      cpu/config=0xff45,name=l1_dtlb_miss/   PMCx045 umask 0xff  ls_l1_d_tlb_miss.all
-l2_itlb_miss   amd_zen4,amd_zen5            cpu/config=0x0f85,name=l2_itlb_miss/   PMCx085 umask 0x0f  bp_l1_tlb_miss_l2_tlb_miss.all
-l2_itlb_miss   amd_zen2,amd_zen3            cpu/config=0xff85,name=l2_itlb_miss/   PMCx085 umask 0xff  bp_l1_tlb_miss_l2_tlb_miss
-l2_itlb_miss   amd_zen1                     cpu/config=0x0785,name=l2_itlb_miss/   PMCx085 umask 0x07  l2_itlb_misses
-l3_load_miss   intel_skx,intel_icx,intel_spr,intel_emr,intel_gnr   cpu/event=0xd1,umask=0x20,name=l3_load_miss/            MEM_LOAD_RETIRED.L3_MISS
-l3_miss_stall  intel_skx,intel_icx             cpu/event=0xa3,umask=0x06,cmask=6,name=l3_miss_stall/   CYCLE_ACTIVITY.STALLS_L3_MISS
-l3_miss_stall  intel_spr,intel_emr,intel_gnr   cpu/event=0x47,umask=0x09,cmask=9,name=l3_miss_stall/   MEMORY_ACTIVITY.STALLS_L3_MISS
-walk_pending   intel_skx,intel_icx             cpu/event=0x08,umask=0x10,name=walk_pending/            DTLB_LOAD_MISSES.WALK_PENDING
-walk_pending   intel_spr,intel_emr,intel_gnr   cpu/event=0x12,umask=0x10,name=walk_pending/            DTLB_LOAD_MISSES.WALK_PENDING
 "
 
 
@@ -545,7 +406,7 @@ walk_pending   intel_spr,intel_emr,intel_gnr   cpu/event=0x12,umask=0x10,name=wa
 # chmod 600. Git holds this file with the keys only; never commit it with values.
 # ==========================================================
 OPS_CONFIG_NAME="ops_local.conf"
-SCRIPT_VERSION="4.7"
+SCRIPT_VERSION="4.8"
 
 OPS_STAT_ROOT="Custom Metrics"
 # --target bm: kinds of the object that is created when Ops has none with the host's name.
@@ -691,8 +552,6 @@ Options:
                               so no PMU load and no perf_event_paranoid needed
                        perf = perf metrics only, THP metrics skipped
                        a,b  = explicit metric names, exactly as --list prints them
-                     Lines that --list marks collect=named are collected only
-                     this way, by name: both and perf leave them out.
                      Unselected metrics keep an empty CSV column, so files from
                      different hosts/settings still merge as one table.
   --target WHERE     Ops push target: vm | any | bm [default: vm]
@@ -1278,10 +1137,19 @@ if [ "$DO_LIST" -eq 1 ]; then
     fi
     echo "───────────────────────────────────────────"
     echo "  sel = selected by --collect   -   = not selected (empty CSV column)"
-    echo "  n/a = selected, but the line is for another CPU class (empty CSV column)"
-    echo "  cpu=amd_zen means amd_zen1 .. amd_zen5"
-    echo "  cpu=intel means every Intel CPU (intel, intel_skx, intel_icx, intel_spr, intel_emr, intel_gnr)"
-    echo "  collect=named = collected only when the name is given with --collect (not part of both / perf)"
+    # the legend of the cpu= and collect=named words is printed only when a table line carries them
+    COND_N=0
+    i=0
+    while [ "$i" -lt "$METRIC_N" ]; do
+        [ -n "${M_CPU[$i]}" ] && COND_N=$((COND_N+1))
+        i=$((i+1))
+    done
+    if [ "$COND_N" -gt 0 ]; then
+        echo "  n/a = selected, but the line is for another CPU class (empty CSV column)"
+        echo "  cpu=amd_zen means amd_zen1 .. amd_zen5"
+        echo "  cpu=intel means every Intel CPU (intel, intel_skx, intel_icx, intel_spr, intel_emr, intel_gnr)"
+    fi
+    [ "$OPT_N" -gt 0 ] && echo "  collect=named = collected only when the name is given with --collect (not part of both / perf)"
     i=0
     while [ "$i" -lt "$METRIC_N" ]; do
         if [ "${M_INSCOPE[$i]}" != "1" ]; then mark=" - "
@@ -2573,7 +2441,7 @@ while true; do
                 CSV_ROW[$i]="$val"
             fi
             case "${M_NAME[$i]}" in
-                IPC_Ratio|ITLB_MissRate_Pct|L2_DTLB_Miss_PTI|Thp_Coverage_Pct) SUMMARY="${SUMMARY} ${M_NAME[$i]}=${val}" ;;
+                IPC_Ratio|ITLB_MissRate_Pct|Thp_Coverage_Pct) SUMMARY="${SUMMARY} ${M_NAME[$i]}=${val}" ;;
             esac
         fi
         i=$((i+1))

@@ -157,15 +157,26 @@ def build():
     ]) + "\n")
 
     rows = guest(g_path)
+    has_cpu = any(r[5] != "전체" for r in rows)          # a line with cpu= / cpu!=
+    n_named = sum(1 for r in rows if r[6] == "이름 지정")  # lines with collect=named
     L.append("## 1. 게스트 OS — ops_metric_push.sh v%s (%d개)\n" % (gv, len(rows)))
     L.append("- 출처: 스크립트의 `METRIC_TABLE`. `s1`, `s2` 는 계산에 쓰는 원본 값이다(perf 이벤트, /proc/meminfo, /proc/vmstat).")
-    L.append("- 적용 CPU 가 맞지 않는 줄은 수집하지 않고 CSV 칸만 비워 둔다. 지원하지 않는 perf 이벤트를 쓰는 줄은 시작할 때 자동으로 빠진다.")
+    if has_cpu:
+        L.append("- 적용 CPU 가 맞지 않는 줄은 수집하지 않고 CSV 칸만 비워 둔다. 지원하지 않는 perf 이벤트를 쓰는 줄은 시작할 때 자동으로 빠진다.")
+    else:
+        L.append("- 모든 줄을 CPU 종류와 관계없이 수집한다. 지원하지 않는 perf 이벤트를 쓰는 줄은 시작할 때 자동으로 빠진다.")
+        L.append("- perf 이벤트 이름이 실제로 세는 이벤트는 게스트의 커널이 CPU 에 따라 정한다. AMD CPU 에서의 연결은 `README.md` 2절에 있다.")
     L.append("- `--perf-fit` 을 쓰면 하드웨어 카운터 수에 맞을 때까지 표의 뒤쪽 perf 이벤트부터 뺀다.")
-    L.append("- 수집 조건이 '기본' 인 줄은 `--collect` 없이 실행할 때 수집한다. '이름 지정' 인 줄(%d개)은 `--collect` 에 "
-             "지표 이름을 적었을 때만 수집하고, `--collect both` 와 `--collect perf` 에는 포함되지 않는다." % sum(1 for r in rows if r[6] == "이름 지정"))
-    L.append("- 적용 CPU 의 Intel 약칭: SKX 는 Skylake-SP, Cascade Lake-SP, Cooper Lake-SP(CPUID model 55h). ICX 는 Ice Lake-SP 와 "
-             "Ice Lake-D(6Ah, 6Ch). SPR 은 Sapphire Rapids(8Fh). EMR 은 Emerald Rapids(CFh). GNR 은 Granite Rapids 와 Granite Rapids-D(ADh, AEh).\n")
-    L.append(table(["그룹", "지표", "계산", "s1", "s2", "적용 CPU", "수집 조건", "설명"], rows) + "\n")
+    if n_named:
+        L.append("- 수집 조건이 '기본' 인 줄은 `--collect` 없이 실행할 때 수집한다. '이름 지정' 인 줄(%d개)은 `--collect` 에 "
+                 "지표 이름을 적었을 때만 수집하고, `--collect both` 와 `--collect perf` 에는 포함되지 않는다." % n_named)
+    if any("Intel " in r[5] for r in rows):
+        L.append("- 적용 CPU 의 Intel 약칭: SKX 는 Skylake-SP, Cascade Lake-SP, Cooper Lake-SP(CPUID model 55h). ICX 는 Ice Lake-SP 와 "
+                 "Ice Lake-D(6Ah, 6Ch). SPR 은 Sapphire Rapids(8Fh). EMR 은 Emerald Rapids(CFh). GNR 은 Granite Rapids 와 Granite Rapids-D(ADh, AEh).")
+    L.append("")
+    # the CPU and collect-condition columns are shown only when a line carries such a word
+    head = ["그룹", "지표", "계산", "s1", "s2"] + (["적용 CPU"] if has_cpu else []) + (["수집 조건"] if n_named else []) + ["설명"]
+    L.append(table(head, [r[:5] + ([r[5]] if has_cpu else []) + ([r[6]] if n_named else []) + [r[7]] for r in rows]) + "\n")
 
     grows, props = gpu(p_path)
     L.append("## 2. GPU — gpu_metric_push.sh v%s (지표 %d개, 구성 정보 %d개)\n" % (pv, len(grows), len(props)))
@@ -176,9 +187,10 @@ def build():
     L.append(table(["항목", "nvidia-smi 필드"], props) + "\n")
 
     L.append("## 3. ESXi 호스트 — vmkperf_ops_push.py v%s\n" % vk.VERSION)
-    L.append("- 출처: `events/<세대>.json`(이벤트), `events/metrics*.json`(지표 계산), `vmkperf_ops_push.py` 의 `plan_counters()`(카운터 배치).")
+    L.append("- 출처: `events/<세대>.json`(이벤트), `events/metrics.json`(지표 계산), `vmkperf_ops_push.py` 의 `plan_counters()`(카운터 배치).")
     L.append("- 수집 여부는 이 스크립트가 수집기의 배치 함수로 계산한 값이다. 실제 호스트에서는 `check` 와 시작 로그의 `SKIPPED` 줄로 확인한다.")
     L.append("- Intel 은 ESXi 고정 카운터로 cycles 를 센다고 가정했다(기본 동작). AMD 는 고정 카운터가 없어 cycles 도 일반 카운터 하나를 쓴다.")
+    L.append("- 지표 정의는 모든 CPU 에 같다. AMD 의 이벤트 파일에는 지표가 쓰는 이벤트 가운데 AMD core 카운터에 있는 cycles 와 instr 만 있어, 그 밖의 지표는 '이벤트 없음' 으로 빠진다.")
     L.append("- 선택 수집: `--qos` 를 켜면 rmID 별 LLC 점유량(`LLC_Occ_*_MB`)을 함께 보낸다.\n")
     L.append(table(["세대", "CPUID family-model", "일반 카운터", "이벤트", "수집 지표", "카운터 부족으로 빠지는 지표", "이벤트 없음"], [
         ["%s (%s)" % (g["cpu"], g["label"].split(":")[0]) if ":" in g["label"] else "%s (%s)" % (g["cpu"], g["label"]), ", ".join(g["fm"]),
