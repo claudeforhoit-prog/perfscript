@@ -130,8 +130,8 @@ def build():
     L.append("이 파일은 `tools/gen_metrics.py` 가 수집기 코드에서 만든다. 손으로 고치지 않는다. "
              "수집기의 지표 표를 바꾼 커밋에서 `python3 tools/gen_metrics.py` 를 실행해 함께 커밋한다.\n")
     L.append(table(["수집기", "판", "실행 위치", "Ops 지표 경로"], [
-        ["ops_metric_push.sh", gv, "게스트 OS", "VM > Custom Metrics > <그룹> > <지표>"],
-        ["gpu_metric_push.sh", pv, "게스트 OS (GPU DirectPath I/O)", "VM > Custom Metrics > Guest GPU > gpu<N> > <지표>"],
+        ["ops_metric_push.sh", gv, "게스트 OS, BM 호스트(--target bm)", "VM 또는 BM 객체 > Custom Metrics > <그룹> > <지표>"],
+        ["gpu_metric_push.sh", pv, "게스트 OS (GPU DirectPath I/O), BM 호스트(--target bm)", "VM 또는 BM 객체 > Custom Metrics > Guest GPU > gpu<N> > <지표>"],
         ["vmkperf_ops_push.py", vk.VERSION, "ESXi 호스트", "Host > Custom Metrics > Host Perf > <지표>"],
     ]) + "\n")
 

@@ -5,7 +5,18 @@ test "$?BASH_VERSION" = "0" && test -f "$0" && exec /bin/bash "$0" $argv:q
 test "$?BASH_VERSION" = "0" && echo "ops_metric_push.sh: do not source it. Run:  bash ops_metric_push.sh [options]"
 if false; then :; fi
 # ============================================================
-# ops_metric_push.sh  v4.4 (2026-11-12)  English
+# ops_metric_push.sh  v4.5 (2026-11-12)  English
+#
+# v4.5: bare-metal hosts  (--target bm)
+#   The same collection on a host that is not a VM. The name (--name, default
+#   hostname -s) is looked up among the objects of every adapter kind. An
+#   existing object receives the metrics under "Custom Metrics" exactly as a
+#   VM does. When Ops has no object with that name, one is created with the
+#   suite-api call POST /api/resources/adapterkinds/{adapterKindKey}: Ops
+#   creates that push adapter kind and the object type on first use
+#   (BM_ADAPTER_KIND / BM_RESOURCE_KIND below, --adapter-kind / --resource-kind).
+#   The created object holds only what this script pushes. --target vm and
+#   --target any behave as before and never create an object.
 #
 # v4.4: connection settings moved out of the script
 #   The Operations address, the account, the encrypted password and its key
@@ -88,9 +99,14 @@ if false; then :; fi
 #                            target is not a VM -- a physical host object, or
 #                            any object an adapter already collects -- as long
 #                            as that object exists in Ops.
-#   The script never creates Ops objects: an object only exists behind a real
-#   adapter, so a pushed-in placeholder would have nothing collecting it. For a
-#   physical host with no object at all, collect to CSV with --mode file.
+#   --target bm              bare-metal host  [v4.5]. The name is matched
+#                            against objects of every adapter kind. An existing
+#                            object gets the metrics as a VM does; when there
+#                            is none, the object is created (push adapter kind
+#                            BM_ADAPTER_KIND, object type BM_RESOURCE_KIND) and
+#                            the metrics go there.
+#   --target vm and --target any never create an object: a mistyped VM name
+#   must end in an error, not in a new object.
 #
 # Ops tree structure:
 #   <object> > Custom Metrics > Guest Perf Generic  > IPC_Ratio / ...
@@ -127,6 +143,10 @@ if false; then :; fi
 #
 #      Push to a non-VM object that already exists in Ops:
 #        nohup bash ops_metric_push.sh --target any --vm bm-node01 > /tmp/ops_push.log 2>&1 &
+#
+#      Bare-metal host (the Ops object is created when there is none):
+#        nohup bash ops_metric_push.sh --target bm > /tmp/ops_push.log 2>&1 &
+#        nohup bash ops_metric_push.sh --target bm >& /tmp/ops_push.log &      # csh/tcsh
 #
 #      CSV only (no Ops connection) / push + CSV together:
 #        nohup bash ops_metric_push.sh --mode file --out /data/perf > /tmp/ops_push.log 2>&1 &
@@ -370,9 +390,13 @@ l2_itlb_miss   amd_zen1                     cpu/config=0x0785,name=l2_itlb_miss/
 # chmod 600. Git holds this file with the keys only; never commit it with values.
 # ==========================================================
 OPS_CONFIG_NAME="ops_local.conf"
-SCRIPT_VERSION="4.4"
+SCRIPT_VERSION="4.5"
 
 OPS_STAT_ROOT="Custom Metrics"
+# --target bm: kinds of the object that is created when Ops has none with the host's name.
+# Ops creates the adapter kind (a push adapter kind of type OPENAPI) and the object type on first use.
+BM_ADAPTER_KIND="BareMetalPush"        # [--adapter-kind]   letters, digits, _ . - only
+BM_RESOURCE_KIND="BareMetalServer"     # [--resource-kind]  letters, digits, _ . - only
 INTERVAL_SEC=60
 PERF_WIN_SEC=55                # length of one perf run with --perf-mode window (v4.1 method)
 PERF_MODE="resident"           # resident = one perf process for the whole run | window = a new run per interval  [--perf-mode]
@@ -407,9 +431,12 @@ COLLECT_SCOPE="both"           # thp | perf | both        [--collect]
 COLLECT_NAMES=""               # comma-separated metric names, COLLECT_MODE=names
 COLLECT_LABEL=""               # banner text
 
-TARGET_KIND="vm"               # vm | any                 [--target]
+TARGET_KIND="vm"               # vm | any | bm            [--target]
 OPS_FOUND_KIND=""              # resourceKindKey of the object actually matched
 OPS_TARGET_DESC=""             # banner text
+OPS_FOUND_ADAPTER=""           # adapterKindKey of the object actually matched  [--target bm]
+OPS_PUSH_KIND=""               # not empty = stats are pushed through this push adapter kind
+OPS_OBJ_CREATED=0              # 1 = this run created the Ops object
 
 OUT_MODE="ops"                 # ops | file | both
 CSV_MODE=0                     # 1 when OUT_MODE is file or both
@@ -497,7 +524,7 @@ Usage: bash $0 --vm <VM name>
   Push Guest OS perf/proc metrics to the matching object in VCF Operations,
   or write them to a local CSV. Collected items are managed in the
   [METRIC TABLE] at the top of the script; --collect narrows that table and
-  --target decides which existing Ops object they are pushed to.
+  --target decides which Ops object they are pushed to.
 
 Options:
   --collect WHAT     What to collect: both | thp | perf | <name,name,...>
@@ -509,13 +536,20 @@ Options:
                        a,b  = explicit metric names, exactly as --list prints them
                      Unselected metrics keep an empty CSV column, so files from
                      different hosts/settings still merge as one table.
-  --target WHERE     Ops push target: vm | any [default: vm]
+  --target WHERE     Ops push target: vm | any | bm [default: vm]
                        vm  = VMWARE VirtualMachine of this name; error if absent
                        any = match the name against every adapter kind,
                              VirtualMachine first. For a target that is not a
                              VM but does already exist in Ops.
-                     Objects are never created: one only exists behind a real
-                     adapter. A physical host with no object -> --mode file.
+                       bm  = bare-metal host. Every adapter kind is searched for
+                             the name; an existing object is used as it is.
+                             When there is none, the object is created
+                             [${BM_ADAPTER_KIND} / ${BM_RESOURCE_KIND}].
+                     vm and any never create an object.
+  --adapter-kind KEY   With --target bm: push adapter kind of a created object
+                     [default: ${BM_ADAPTER_KIND}]
+  --resource-kind KEY  With --target bm: object type of a created object
+                     [default: ${BM_RESOURCE_KIND}]
   --mode MODE        Output mode: ops | file | both [default: ops]
                        ops  = push to Ops only (v2 behaviour)
                        file = write a local CSV only, never contacts Ops
@@ -558,6 +592,7 @@ Examples:
   nohup bash $0 --perf-fit --vm vm-node01 > /tmp/ops_push.log 2>&1 &
   nohup bash $0 --collect thp --vm vm-node01 > /tmp/ops_push.log 2>&1 &
   nohup bash $0 --target any --name bm-node01 > /tmp/ops_push.log 2>&1 &
+  nohup bash $0 --target bm > /tmp/ops_push.log 2>&1 &
   nohup bash $0 --vm vm-node01 > /tmp/ops_push.log 2>&1 &
   nohup bash $0 --mode file --out /data/perf > /tmp/ops_push.log 2>&1 &
   nohup bash $0 --mode both --out /data/perf --vm vm-node01 > /tmp/ops_push.log 2>&1 &
@@ -704,11 +739,15 @@ while [ "$#" -gt 0 ]; do
             shift ;;
         --target)
             case "${2:-}" in
-                vm|any) TARGET_KIND="$2" ;;
-                *) echo "[ERROR] --target must be one of: vm | any" >&2; exit 1 ;;
+                vm|any|bm) TARGET_KIND="$2" ;;
+                *) echo "[ERROR] --target must be one of: vm | any | bm" >&2; exit 1 ;;
             esac
             shift ;;
         --config)      OPS_CONFIG="${2:-}"; CONFIG_EXPLICIT=1; shift ;;
+        --adapter-kind|--resource-kind)
+            case "${2:-}" in ''|*[!A-Za-z0-9_.-]*) echo "[ERROR] $1 takes letters, digits, _ . - only" >&2; exit 1 ;; esac
+            if [ "$1" = "--adapter-kind" ]; then BM_ADAPTER_KIND="$2"; else BM_RESOURCE_KIND="$2"; fi
+            shift ;;
         --host)        OPS_HOST="${2:-}"; shift ;;
         --user)        OPS_USER="${2:-}"; shift ;;
         --pass)        OPS_PASSWORD="${2:-}"; shift ;;
@@ -1893,11 +1932,126 @@ if not h: print("          (no candidates / %d VMs total)"%len(ns))
     echo "        Specify exactly with --vm." >&2
 }
 
+# --target bm: find the object for this host among every adapter kind.
+#   return 0 = found  (OPS_RESOURCE_ID, OPS_FOUND_KIND, OPS_FOUND_ADAPTER set)
+#   return 1 = Ops answered and has no object with that name
+#   return 2 = the lookup itself failed (nothing may be created on that basis)
+# An object that some other adapter collects is preferred over one this script created
+# earlier through the push adapter kind.
+lookup_bm() {
+    local out code resp parsed cnt rest
+    out=$(mktemp 2>/dev/null || echo "/tmp/ops_push_lookup_$$")
+    code=$(curl -s $CURL_TLS -o "$out" -w '%{http_code}' --max-time 20 -G "${OPS_BASE}/suite-api/api/resources" \
+        --data-urlencode "name=${OPS_VM_NAME}" --data-urlencode "_no_links=true" \
+        -H "Authorization: ${AUTH_SCHEME} ${OPS_TOKEN}" -H 'Accept: application/json' 2>/dev/null)
+    resp=$(cat "$out" 2>/dev/null); rm -f "$out"
+    if [ "$code" != "200" ]; then
+        echo "[ERROR] object lookup failed [HTTP ${code}]: $(printf '%s' "$resp" | head -c 200)" >&2
+        return 2
+    fi
+    if [ "$JSON_TOOL" = "python3" ]; then
+        parsed=$(printf '%s' "$resp" | python3 -c '
+import sys,json
+name,push=sys.argv[1],sys.argv[2]
+try: d=json.load(sys.stdin)
+except Exception: print("ERR"); sys.exit(0)
+if not isinstance(d,dict): print("ERR"); sys.exit(0)
+rl=d.get("resourceList") or []
+def rk(r): return r.get("resourceKey") or {}
+def nm(r): return rk(r).get("name") or ""
+ex=[r for r in rl if nm(r)==name]
+if not ex: ex=[r for r in rl if nm(r).lower()==name.lower()]
+real=[r for r in ex if (rk(r).get("adapterKindKey") or "")!=push]
+pick=(real or ex)[:1]
+if pick:
+    r=pick[0]
+    print("%s|%s|%s|%d"%(r.get("identifier",""), rk(r).get("resourceKindKey") or "", rk(r).get("adapterKindKey") or "", len(ex)))
+else: print("|||0")
+' "$OPS_VM_NAME" "$BM_ADAPTER_KIND" 2>/dev/null)
+    else
+        parsed=$(printf '%s' "$resp" | jq -r --arg n "$OPS_VM_NAME" --arg p "$BM_ADAPTER_KIND" '
+            if type!="object" then "ERR" else
+            (.resourceList//[]) as $rl
+            |([$rl[]|select(.resourceKey.name==$n)]) as $e
+            |(if ($e|length)>0 then $e
+              else [$rl[]|select((.resourceKey.name|ascii_downcase)==($n|ascii_downcase))] end) as $ex
+            |([$ex[]|select((.resourceKey.adapterKindKey//"")!=$p)]) as $real
+            |(if ($real|length)>0 then $real[0] else ($ex[0]//null) end) as $r
+            |"\(($r.identifier)//"")|\(($r.resourceKey.resourceKindKey)//"")|\(($r.resourceKey.adapterKindKey)//"")|\($ex|length)"
+            end' 2>/dev/null)
+    fi
+    case "$parsed" in
+        ''|ERR) echo "[ERROR] object lookup: the answer of Ops could not be read: $(printf '%s' "$resp" | head -c 200)" >&2; return 2 ;;
+    esac
+    OPS_RESOURCE_ID="${parsed%%|*}"
+    rest="${parsed#*|}"; OPS_FOUND_KIND="${rest%%|*}"
+    rest="${rest#*|}";   OPS_FOUND_ADAPTER="${rest%%|*}"
+    cnt="${rest##*|}"
+    [ -z "$OPS_RESOURCE_ID" ] && return 1
+    [ -n "$cnt" ] && [ "$cnt" -gt 1 ] 2>/dev/null && \
+        echo "[WARN] ${cnt} objects share the name '${OPS_VM_NAME}' -> using ${OPS_FOUND_KIND} of ${OPS_FOUND_ADAPTER}. Otherwise use --resource-id." >&2
+    return 0
+}
+
+# --target bm: create the object for this host. Ops creates the push adapter kind and the
+# object type when they do not exist yet (suite-api: POST /api/resources/adapterkinds/{adapterKindKey}).
+create_bm_object() {
+    local body out code id n a k
+    n=$(json_escape "$OPS_VM_NAME"); a=$(json_escape "$BM_ADAPTER_KIND"); k=$(json_escape "$BM_RESOURCE_KIND")
+    body=$(printf '{"description":"bare-metal host, object created by a metric push script","resourceKey":{"name":"%s","adapterKindKey":"%s","resourceKindKey":"%s"},"resourceStatusStates":[]}' "$n" "$a" "$k")
+    out=$(mktemp 2>/dev/null || echo "/tmp/ops_push_create_$$")
+    code=$(curl -s $CURL_TLS -o "$out" -w '%{http_code}' --max-time 30 \
+        -X POST "${OPS_BASE}/suite-api/api/resources/adapterkinds/${BM_ADAPTER_KIND}" \
+        -H "Authorization: ${AUTH_SCHEME} ${OPS_TOKEN}" \
+        -H 'Content-Type: application/json' -H 'Accept: application/json' -d "$body" 2>/dev/null)
+    id=""
+    case "$code" in 200|201) id=$(json_get "$(cat "$out" 2>/dev/null)" identifier) ;; esac
+    if [ -z "$id" ]; then
+        echo "[ERROR] the Ops object '${OPS_VM_NAME}' could not be created [HTTP ${code}, ${BM_ADAPTER_KIND} / ${BM_RESOURCE_KIND}]" >&2
+        echo "        Answer of Ops: $(head -c 300 "$out" 2>/dev/null)" >&2
+        rm -f "$out"; return 1
+    fi
+    rm -f "$out"
+    OPS_RESOURCE_ID="$id"; OPS_FOUND_KIND="$BM_RESOURCE_KIND"; OPS_FOUND_ADAPTER="$BM_ADAPTER_KIND"; OPS_OBJ_CREATED=1
+    return 0
+}
+
+# --target bm: existing object of any adapter kind, else create one. Sets OPS_PUSH_KIND when
+# the object belongs to the push adapter kind, so that its stats are pushed through that kind.
+resolve_bm() {
+    local rc
+    lookup_bm; rc=$?
+    [ "$rc" -eq 2 ] && return 1
+    if [ "$rc" -ne 0 ]; then
+        if ! create_bm_object; then
+            # the object may exist already although the search did not show it: look once more
+            lookup_bm; rc=$?
+            if [ "$rc" -ne 0 ]; then
+                echo "        Check that the account may create objects in Ops. Without that, collect locally: --mode file --out <dir>." >&2
+                return 1
+            fi
+        fi
+    fi
+    if [ "$OPS_FOUND_ADAPTER" = "$BM_ADAPTER_KIND" ]; then
+        OPS_PUSH_KIND="$BM_ADAPTER_KIND"
+        if [ "$OPS_OBJ_CREATED" -eq 1 ]; then OPS_TARGET_DESC="${OPS_FOUND_KIND} of ${OPS_FOUND_ADAPTER}, created now"
+        else OPS_TARGET_DESC="${OPS_FOUND_KIND} of ${OPS_FOUND_ADAPTER}, created by an earlier run"; fi
+    else
+        OPS_PUSH_KIND=""
+        OPS_TARGET_DESC="${OPS_FOUND_KIND:-kind unknown} of ${OPS_FOUND_ADAPTER:-adapter unknown}, existing object"
+    fi
+    return 0
+}
+
 # Decide which Ops object this run pushes to.
-# No object is ever created: in Ops an object exists behind a real adapter, so
-# an object pushed in from here would have nothing collecting it. When the
-# target has no object at all, --mode file is the collection path.
+# --target vm and --target any never create an object: when there is none the run ends
+# with an error (collect with --mode file instead). --target bm uses an existing object
+# of any adapter kind, and creates the object when Ops has none with that name.
 resolve_target() {
+    if [ "$TARGET_KIND" = "bm" ]; then
+        resolve_bm
+        return $?
+    fi
     if lookup_resource vm; then
         OPS_TARGET_DESC="VirtualMachine"
         return 0
@@ -1913,7 +2067,7 @@ resolve_target() {
         return 0
     fi
     echo "[ERROR] No Ops object named '${OPS_VM_NAME}' under any adapter kind." >&2
-    echo "        The object has to exist in Ops first -- this script does not create one." >&2
+    echo "        --target any does not create objects. A bare-metal host: --target bm creates it." >&2
     echo "        Pass the id directly with --resource-id <id>, or collect locally" >&2
     echo "        with --mode file --out <dir>." >&2
     return 1
@@ -1924,7 +2078,7 @@ push_stats() {
     while [ "$attempt" -le 2 ]; do
         out=$(mktemp 2>/dev/null || echo "/tmp/ops_push_resp_$$")
         code=$(curl -s $CURL_TLS -o "$out" -w '%{http_code}' --max-time "$OPS_TIMEOUT" \
-            -X POST "${OPS_BASE}/suite-api/api/resources/${OPS_RESOURCE_ID}/stats" \
+            -X POST "${OPS_BASE}/suite-api/api/resources/${OPS_RESOURCE_ID}/stats${OPS_PUSH_KIND:+/adapterkinds/${OPS_PUSH_KIND}}" \
             -H "Authorization: ${AUTH_SCHEME} ${OPS_TOKEN}" \
             -H 'Content-Type: application/json' -H 'Accept: application/json' -d "$json" 2>/dev/null)
         case "$code" in

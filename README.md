@@ -4,8 +4,8 @@ VCF Operations 로 사용자 지표를 전송하는 수집기 세 개를 관리�
 
 | 파일 | 실행 위치 | 수집 내용 | 버전 |
 | :-- | :-- | :-- | :-- |
-| `ops_metric_push.sh` | 게스트 OS | perf 지표와 THP 지표 | 4.4 |
-| `gpu_metric_push.sh` | GPU 를 DirectPath I/O 로 할당받은 게스트 OS | nvidia-smi 지표 | 1.1 |
+| `ops_metric_push.sh` | 게스트 OS, BM 호스트 | perf 지표와 THP 지표 | 4.5 |
+| `gpu_metric_push.sh` | GPU 를 DirectPath I/O 로 할당받은 게스트 OS, GPU 가 있는 BM 호스트 | nvidia-smi 지표 | 1.2 |
 | `vmkperf_ops_push/vmkperf_ops_push.py` | ESXi 호스트 | vmkperf 지표 | 1.3 |
 
 ## 1. 접속 설정 파일 ops_local.conf
@@ -57,6 +57,29 @@ python3 vmkperf_ops_push.py stop
 
 옵션 전체는 각 스크립트의 `--help` 와 파일 첫머리 설명에 있다.
 
+### BM 호스트에서 실행 (`--target bm`)
+
+VM 이 아닌 BM 호스트에서도 같은 수집기를 실행한다. `--target bm` 을 지정하면 수집기가 Operations 에서 이름이 같은 객체를 모든 adapter kind 에서 찾는다.
+
+- 객체가 있으면 그 객체에 전송한다. 지표는 VM 과 같이 `Custom Metrics` 아래에 기록된다.
+- 객체가 없으면 객체를 만든 뒤 전송한다. 만든 객체의 adapter kind 는 `BareMetalPush`, object type 은 `BareMetalServer` 이다. `--adapter-kind`, `--resource-kind` 로 다른 이름을 지정할 수 있다.
+- 다시 시작하면 앞서 만든 객체를 찾아 그대로 쓴다. 객체를 다시 만들지 않는다.
+- 이름이 같은 객체가 여럿이면 다른 어댑터가 수집하는 객체를 먼저 쓴다.
+- 객체 이름은 `--name` 으로 지정한다. 생략하면 `hostname -s` 값이다.
+- 객체 조회가 실패하거나 Operations 가 객체 생성을 거부하면 수집기는 객체를 만들지 않고 종료한다. 계정에 객체를 만들 권한이 있어야 한다.
+- 만든 객체에는 이 수집기가 보낸 지표만 있다. 다른 어댑터가 수집하는 항목은 없다.
+- `--target vm`(기본값)과 `--target any` 는 객체를 만들지 않는다. VM 이름을 잘못 적었을 때 새 객체가 생기지 않게 하기 위해서다.
+
+```
+nohup bash ops_metric_push.sh --target bm >& /tmp/ops_push.log &                 # csh, tcsh
+nohup bash ops_metric_push.sh --target bm > /tmp/ops_push.log 2>&1 &             # bash
+nohup bash ops_metric_push.sh --target bm --name bm-node01 --perf-fit >& /tmp/ops_push.log &
+nohup bash gpu_metric_push.sh --target bm >& /tmp/gpu_metric_push.log &          # GPU 가 있는 BM 호스트
+bash ops_metric_push.sh --stop
+```
+
+객체 생성에는 VCF Operations API 의 `POST /suite-api/api/resources/adapterkinds/{adapterKindKey}` 를 쓴다. 지정한 adapter kind 와 object type 이 Operations 에 없으면 Operations 가 함께 만든다. 만든 객체의 지표는 `POST /suite-api/api/resources/{id}/stats/adapterkinds/{adapterKind}` 로, GPU 수집기의 구성 정보는 `POST /suite-api/api/resources/{id}/properties/adapterkinds/{adapterKind}` 로 보낸다. 이미 있던 객체에는 VM 과 같은 경로(`/stats`, `/properties`)로 보낸다.
+
 ## 3. 버전 관리
 
 - 파일 이름에 버전을 넣지 않는다. 버전은 스크립트 안의 `SCRIPT_VERSION`(셸)과 `VERSION`(Python)에 있고 시작 화면에 표시된다.
@@ -68,6 +91,8 @@ python3 vmkperf_ops_push.py stop
 | 2026-11-12 | `ops_metric_push.sh` | 4.4 | 접속 설정을 `ops_local.conf` 로 분리. 수집 동작은 4.3 과 같음 |
 | 2026-11-12 | `gpu_metric_push.sh` | 1.1 | 접속 설정을 `ops_local.conf` 로 분리. 수집 동작은 1.0 과 같음 |
 | 2026-11-12 | `vmkperf_ops_push.py` | 1.3 | 접속 설정을 `ops_local.conf` 로 분리. `--cred-from` 삭제. `OPS_HOST` 에 `http(s)://` 주소 허용. 수집 동작은 1.2 와 같음 |
+| 2026-11-12 | `ops_metric_push.sh` | 4.5 | BM 호스트 대상 `--target bm` 추가. Operations 에 객체가 없으면 객체를 만들고 전송. `--adapter-kind`, `--resource-kind` 추가. `--target vm`, `--target any` 와 파일 모드 동작은 4.4 와 같음 |
+| 2026-11-12 | `gpu_metric_push.sh` | 1.2 | `--target`(vm, bm), `--name`, `--adapter-kind`, `--resource-kind` 추가. BM 호스트에서 객체가 없으면 객체를 만들고 지표와 구성 정보를 전송. 시작 화면의 target 줄 형식 변경. 수집 동작은 1.1 과 같음 |
 
 Git 에 올리기 전의 판은 이 저장소에 없다. 게스트 수집기 4.2 에서 perf 를 한 번만 실행하는 방식과 multiplexing 표시, `--perf-fit` 을 넣었고, 4.3 과 호스트 수집기 1.2 에서 AMD Zen 1~5 이벤트를 넣었다.
 

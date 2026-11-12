@@ -4,11 +4,11 @@
 
 | 수집기 | 판 | 실행 위치 | Ops 지표 경로 |
 | :-- | :-- | :-- | :-- |
-| ops_metric_push.sh | 4.4 | 게스트 OS | VM > Custom Metrics > <그룹> > <지표> |
-| gpu_metric_push.sh | 1.1 | 게스트 OS (GPU DirectPath I/O) | VM > Custom Metrics > Guest GPU > gpu<N> > <지표> |
+| ops_metric_push.sh | 4.5 | 게스트 OS, BM 호스트(--target bm) | VM 또는 BM 객체 > Custom Metrics > <그룹> > <지표> |
+| gpu_metric_push.sh | 1.2 | 게스트 OS (GPU DirectPath I/O), BM 호스트(--target bm) | VM 또는 BM 객체 > Custom Metrics > Guest GPU > gpu<N> > <지표> |
 | vmkperf_ops_push.py | 1.3 | ESXi 호스트 | Host > Custom Metrics > Host Perf > <지표> |
 
-## 1. 게스트 OS — ops_metric_push.sh v4.4 (42개)
+## 1. 게스트 OS — ops_metric_push.sh v4.5 (42개)
 
 - 출처: 스크립트의 `METRIC_TABLE`. `s1`, `s2` 는 계산에 쓰는 원본 값이다(perf 이벤트, /proc/meminfo, /proc/vmstat).
 - 적용 CPU 가 맞지 않는 줄은 수집하지 않고 CSV 칸만 비워 둔다. 지원하지 않는 perf 이벤트를 쓰는 줄은 시작할 때 자동으로 빠진다.
@@ -59,7 +59,7 @@
 | Guest Perf AMD | L1_DTLB_Miss | 값 그대로 | perf:l1_dtlb_miss |  | AMD Zen 전체 | L1 DTLB misses |
 | Guest Perf AMD | L2_ITLB_Miss | 값 그대로 | perf:l2_itlb_miss |  | AMD Zen 전체 | L2 ITLB misses (page walks) |
 
-## 2. GPU — gpu_metric_push.sh v1.1 (지표 36개, 구성 정보 17개)
+## 2. GPU — gpu_metric_push.sh v1.2 (지표 36개, 구성 정보 17개)
 
 - 출처: 스크립트의 `METRIC_TABLE`, `PROP_TABLE`. GPU 마다 `gpu0`, `gpu1` … 아래에 기록한다.
 - 드라이버나 GPU 가 주지 않는 필드는 시작할 때 확인해 빠진다(`--check` 로 확인).
