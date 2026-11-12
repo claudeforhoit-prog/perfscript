@@ -23,6 +23,18 @@ env PATH=$PWD/stub_esxi_bin:$PATH STUB_STATE=/tmp/vktest/s1 STUB_VENDOR=amd STUB
 PROC=/tmp/opstest/proc_23-49 ./run_guest.sh zen2 36 FAKE_PERF_GP=6 FAKE_PERF_FIXED= -- --mode file --out /tmp/opstest/c1 --interval 10
 ```
 
+Intel 게스트의 L3 지표(4.7) 시험 예. `proc_intel` 은 family 6, model 143(Sapphire Rapids)이다. 다른 세대는 `mkproc.sh` 로 만든다(Skylake-SP 6-85, Ice Lake-SP 6-106, Emerald Rapids 6-207, Granite Rapids 6-173).
+
+```
+./mkproc.sh GenuineIntel 6 173 /tmp/opstest/proc_6-173
+PROC=/tmp/opstest/proc_6-173 ./run_guest.sh gnr_l3 36 FAKE_PERF_GP=8 -- --mode file --out /tmp/opstest/c1 --interval 10 \
+    --collect IPC_Ratio,Instructions,Cycles,L3_Load_Miss_PTI,L3_Miss_Stall_Pct,DTLB_Load_Miss,DTLB_Walk_Cycles,Cycles_Per_RefCycle
+```
+
+- 가짜 perf 가 고정 카운터로 처리하는 이벤트의 기본값은 `cycles,instructions,ref-cycles` 다(4.7 부터 `ref-cycles` 포함). AMD 시험에서는 `FAKE_PERF_FIXED=` 로 비운다.
+- 가짜 perf 는 범용 카운터의 개수만 흉내 낸다. Intel 이벤트의 카운터 0~3 전용 제약은 흉내 내지 않으므로, 그 제약 때문에 생기는 multiplexing 은 이 도구로 확인되지 않는다.
+- 수집기를 멈추는 시각이 수집 간격의 경계와 겹치면 `perf is not running any more` 경고와 perf 값이 빈 행이 하나 기록된다. 중지 과정에서 perf 가 먼저 끝나기 때문이다. 시험 결과를 비교할 때는 실행 시간을 바꿔 다시 실행한다.
+
 BM 대상(`--target bm`) 시험 예. `test.conf` 는 `OPS_HOST=http://127.0.0.1:18097` 과 시험용 계정, 키, 암호문을 넣은 설정 파일이다.
 
 ```

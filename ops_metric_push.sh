@@ -5,7 +5,46 @@ test "$?BASH_VERSION" = "0" && test -f "$0" && exec /bin/bash "$0" $argv:q
 test "$?BASH_VERSION" = "0" && echo "ops_metric_push.sh: do not source it. Run:  bash ops_metric_push.sh [options]"
 if false; then :; fi
 # ============================================================
-# ops_metric_push.sh  v4.6 (2026-11-12)  English
+# ops_metric_push.sh  v4.7 (2026-11-12)  English
+#
+# v4.7: L3 contention metrics for Intel guests  (group "Guest Perf Intel"),
+#       metric lines that are collected only when named  (collect=named)
+#   1) Four more events on Intel Xeon: l3_load_miss (MEM_LOAD_RETIRED.L3_MISS),
+#      l3_miss_stall (CYCLE_ACTIVITY.STALLS_L3_MISS on Skylake-SP and Ice
+#      Lake-SP, MEMORY_ACTIVITY.STALLS_L3_MISS from Sapphire Rapids on),
+#      walk_pending (DTLB_LOAD_MISSES.WALK_PENDING) and ref-cycles. Ten metric
+#      lines use them together with events the collector already had:
+#      cache-misses, instructions, cycles and dTLB-load-misses, which the
+#      kernel maps to DTLB_LOAD_MISSES.WALK_COMPLETED on these CPUs.
+#      Purpose: put a number on what L3 contention costs a VM, by comparing a
+#      run alone with a run beside another VM: L3 misses per 1000
+#      instructions, the share of cycles stalled on an L3 miss, the stall
+#      cycles per miss, the cycles per page walk.
+#      The run line is under "L3 contention on Intel Xeon" in [How to run].
+#   2) Intel CPU classes intel_skx, intel_icx, intel_spr, intel_emr and
+#      intel_gnr, from the CPUID model as in the kernel's intel-family.h:
+#        intel_skx  model 55h        Skylake-SP, Cascade Lake-SP, Cooper Lake-SP
+#        intel_icx  models 6Ah 6Ch   Ice Lake-SP, Ice Lake-D
+#        intel_spr  model 8Fh        Sapphire Rapids
+#        intel_emr  model CFh        Emerald Rapids
+#        intel_gnr  models ADh AEh   Granite Rapids, Granite Rapids-D
+#      The raw event codes differ per generation, so the alias table needs
+#      the class. Any other Intel model keeps the class "intel", and cpu=intel
+#      in the tables still means every Intel CPU. On the five generations the
+#      banner, --list and the support log now show the generation class
+#      (v4.6 showed "intel").
+#   3) collect=named: a metric-table line that ends with this word is
+#      collected only when its name is given with --collect. It is not part
+#      of --collect both / perf, so a run without --collect asks for the same
+#      events as before. The ten Intel lines carry it, and so do the three
+#      L1D_Fill_L3 lines of v4.6: a default run on AMD Zen 3-5 is back to the
+#      8 events of v4.5 (v4.6: 9). Reason: every event added to the default
+#      run lowers the share of time the other events are counted.
+#   4) --collect with names: names that belong to another CPU class are
+#      listed in a warning at start. When none of the names applies to this
+#      CPU the run ends with an error instead of writing empty rows.
+#   CSV: ten columns follow the v4.6 columns, which keep their positions.
+#   Collection itself is as in v4.6.
 #
 # v4.6: L1D fills from L3 on AMD Zen 3, Zen 4 and Zen 5  (L1D_Fill_L3 lines)
 #   One more event, dc_fill_l3 (PMCx044 unit mask 0x02), and three metric
@@ -21,7 +60,9 @@ if false; then :; fi
 #   The three lines are the last lines of the metric table. The CSV columns
 #   of v4.5 keep their positions (three columns follow them), and --perf-fit
 #   keeps the same events as v4.5: dc_fill_l3 is the first event it removes.
-#   Without --perf-fit a Zen 3-5 guest now asks for 9 events (v4.5: 8).
+#   Without --perf-fit a Zen 3-5 guest asked for 9 events in v4.6 (v4.5: 8).
+#   [v4.7: the three lines are collect=named lines, see above; the default
+#   run asks for 8 events again, and the Intel lines follow them in the table.]
 #   Not on Zen 2: unit mask 0x02 of its event PMCx043 also counts fills from
 #   the caches of other CCXs on the same die. The Zen 1 list has no
 #   fill-by-source event. Collection itself is as in v4.5.
@@ -131,6 +172,8 @@ if false; then :; fi
 #   <object> > Custom Metrics > Guest Perf Generic  > IPC_Ratio / ...
 #                             > Guest Perf Extended > ITLB_MissRate_Pct / ...
 #                             > Guest THP           > Thp_Coverage_Pct / ...
+#                             > Guest Perf AMD      > L2_DTLB_Miss_PTI / ...   (AMD Zen)
+#                             > Guest Perf Intel    > L3_Load_Miss_PTI / ...   (Intel Xeon, by name)
 #
 # ------------------------------------------------------------
 # [How to run]
@@ -167,9 +210,11 @@ if false; then :; fi
 #        nohup bash ops_metric_push.sh --target bm > /tmp/ops_push.log 2>&1 &
 #        nohup bash ops_metric_push.sh --target bm >& /tmp/ops_push.log &      # csh/tcsh
 #
-#      L3 contention check on AMD Zen 3-5  [v4.6]. The named metrics need six
-#      events (instructions, cycles, l2_dtlb_miss, dc_fill_mem, l2_miss,
-#      dc_fill_l3), as many as a Zen core has counters, so none is time-shared:
+#      L3 contention check on AMD Zen 3-5  [v4.6]. The L1D_Fill_L3 lines are
+#      collect=named lines [v4.7]: only a run that names them collects them.
+#      The named metrics need six events (instructions, cycles, l2_dtlb_miss,
+#      dc_fill_mem, l2_miss, dc_fill_l3), as many as a Zen core has counters,
+#      so none is time-shared:
 #        nohup bash ops_metric_push.sh --collect IPC_Ratio,Instructions,Cycles,L2_DTLB_Miss_PTI,L1D_Fill_Mem_PTI,L2_Miss_PTI,L2_DTLB_Miss,L1D_Fill_Mem,L2_Miss,L1D_Fill_L3_PTI,L1D_Fill_L3 > /tmp/ops_push.log 2>&1 &
 #        nohup bash ops_metric_push.sh --collect IPC_Ratio,Instructions,Cycles,L2_DTLB_Miss_PTI,L1D_Fill_Mem_PTI,L2_Miss_PTI,L2_DTLB_Miss,L1D_Fill_Mem,L2_Miss,L1D_Fill_L3_PTI,L1D_Fill_L3 >& /tmp/ops_push.log &      # csh/tcsh
 #      Do not add --perf-fit here: dc_fill_l3 is the first event it removes.
@@ -183,6 +228,29 @@ if false; then :; fi
 #      If it has to stay on, leave L2_DTLB_Miss_PTI and L2_DTLB_Miss out of the
 #      list: five events. Keep L2_Miss: L2 misses are the requests that went on
 #      to the L3, and they show whether two runs put the same load on it.
+#
+#      L3 contention on Intel Xeon (Skylake-SP .. Granite Rapids)  [v4.7].
+#      The named metrics need instructions, cycles and ref-cycles, which have
+#      fixed counters, and six events on general counters (cache-references,
+#      cache-misses, l3_load_miss, l3_miss_stall, dTLB-load-misses,
+#      walk_pending):
+#        nohup bash ops_metric_push.sh --collect IPC_Ratio,Instructions,Cycles,Cache_MissRate_Pct,Cache_Ref,Cache_Miss,LLC_Miss_PTI,L3_Load_Miss_PTI,L3_Load_Miss,L3_Miss_Stall_Pct,L3_Miss_Stall,L3_Miss_Stall_Per_Miss,DTLB_Load_Miss,DTLB_Walk_Pending,DTLB_Walk_Cycles,Ref_Cycles,Cycles_Per_RefCycle > /tmp/ops_push.log 2>&1 &
+#        nohup bash ops_metric_push.sh --collect IPC_Ratio,Instructions,Cycles,Cache_MissRate_Pct,Cache_Ref,Cache_Miss,LLC_Miss_PTI,L3_Load_Miss_PTI,L3_Load_Miss,L3_Miss_Stall_Pct,L3_Miss_Stall,L3_Miss_Stall_Per_Miss,DTLB_Load_Miss,DTLB_Walk_Pending,DTLB_Walk_Cycles,Ref_Cycles,Cycles_Per_RefCycle >& /tmp/ops_push.log &      # csh/tcsh
+#      Do not add --perf-fit here: when counters are short it removes the new
+#      events first (walk_pending, then l3_miss_stall, then l3_load_miss).
+#      Judge by the "multiplexing" line of the banner and by "perf run" in the
+#      log: 100 = no event is time-shared.
+#      l3_load_miss, l3_miss_stall, dTLB-load-misses and walk_pending count on
+#      general counters 0-3 only (Intel event lists), so these four take all
+#      of them. A guest with four general counters in all: leave the four LLC
+#      metrics out (Cache_MissRate_Pct, Cache_Ref, Cache_Miss, LLC_Miss_PTI).
+#      The NMI watchdog is one more cycles event on every CPU (kernel source,
+#      kernel/watchdog_perf.c). With it on, one of the two cycles events
+#      counts on a general counter. To turn it off until the next reboot:
+#        sudo sysctl -w kernel.nmi_watchdog=0
+#      Do not start the host collector (vmkperf) for the time of this run: a
+#      physical counter in use by the host is not available to the guest
+#      (Broadcom KB 344161).
 #
 #      CSV only (no Ops connection) / push + CSV together:
 #        nohup bash ops_metric_push.sh --mode file --out /data/perf > /tmp/ops_push.log 2>&1 &
@@ -324,15 +392,22 @@ set -u
 # order: with --perf-fit the events are kept in the order they first appear in this
 #        table, so put the lines you need most first. The AMD lines start with the
 #        page-walk and memory-fill events for that reason.
-#        The L1D_Fill_L3 lines [v4.6] are the last lines on purpose: the CSV columns
-#        and the --perf-fit result of v4.5 stay as they were. Ask for them by name
-#        with --collect (see "L3 contention check" in [How to run]).
-# cpu  : optional last word of a line, cpu=<class> or cpu!=<class>.
+#        New lines go to the end of the table, so the CSV columns of earlier versions
+#        keep their positions: the L1D_Fill_L3 lines [v4.6], then the Guest Perf Intel
+#        lines [v4.7].
+# cpu  : optional word after the description, cpu=<class> or cpu!=<class>.
 #        The line is used only on (cpu=) or only off (cpu!=) that CPU class.
-#        Classes: intel | amd_zen1 .. amd_zen5 | amd | other   (shown by --list)
-#        amd_zen stands for any of amd_zen1 .. amd_zen5. Several classes are joined
-#        with commas: cpu=amd_zen3,amd_zen4,amd_zen5
+#        Classes: intel | intel_skx | intel_icx | intel_spr | intel_emr | intel_gnr |
+#                 amd_zen1 .. amd_zen5 | amd | other   (shown by --list)
+#        intel stands for every Intel CPU: the five generation classes and any other
+#        Intel model. amd_zen stands for any of amd_zen1 .. amd_zen5. Several classes
+#        are joined with commas: cpu=amd_zen3,amd_zen4,amd_zen5
 #        A line that does not apply keeps its CSV column, empty.
+# collect=named : optional word after the description  [v4.7]. The line is collected
+#        only when its name is given with --collect <name,name,...>. --collect both and
+#        --collect perf leave it out, so it adds no event to a default run. Used for the
+#        lines of the L3 contention checks, whose events would otherwise take counters
+#        away from the default set. Its CSV column is always there, empty unless named.
 # ==========================================================
 METRIC_TABLE="
 Guest Perf Generic|IPC_Ratio            ratio  perf:instructions           perf:cycles                 instructions/cycle
@@ -377,9 +452,19 @@ Guest Perf AMD|L1D_Fill_All             raw    perf:dc_fill_all            -    
 Guest Perf AMD|L1D_Demand_Fill_All      raw    perf:dmnd_fill_all          -                           L1D demand fills from every listed source (Zen 2)  cpu=amd_zen2
 Guest Perf AMD|L1_DTLB_Miss             raw    perf:l1_dtlb_miss           -                           L1 DTLB misses  cpu=amd_zen
 Guest Perf AMD|L2_ITLB_Miss             raw    perf:l2_itlb_miss           -                           L2 ITLB misses (page walks)  cpu=amd_zen
-Guest Perf AMD|L1D_Fill_L3_PTI          pti    perf:dc_fill_l3             perf:instructions           L1D fills from L3 or another L2 of the same CCX per 1000 instr  cpu=amd_zen3,amd_zen4,amd_zen5
-Guest Perf AMD|L1D_Fill_L3_Pct          pct    perf:dc_fill_l3             perf:dc_fill_all            share of L1D fills that came from L3 or another L2 of the same CCX  cpu=amd_zen3,amd_zen4,amd_zen5
-Guest Perf AMD|L1D_Fill_L3              raw    perf:dc_fill_l3             -                           L1D fills from L3 or another L2 of the same CCX  cpu=amd_zen3,amd_zen4,amd_zen5
+Guest Perf AMD|L1D_Fill_L3_PTI          pti    perf:dc_fill_l3             perf:instructions           L1D fills from L3 or another L2 of the same CCX per 1000 instr  cpu=amd_zen3,amd_zen4,amd_zen5  collect=named
+Guest Perf AMD|L1D_Fill_L3_Pct          pct    perf:dc_fill_l3             perf:dc_fill_all            share of L1D fills that came from L3 or another L2 of the same CCX  cpu=amd_zen3,amd_zen4,amd_zen5  collect=named
+Guest Perf AMD|L1D_Fill_L3              raw    perf:dc_fill_l3             -                           L1D fills from L3 or another L2 of the same CCX  cpu=amd_zen3,amd_zen4,amd_zen5  collect=named
+Guest Perf Intel|LLC_Miss_PTI           pti    perf:cache-misses           perf:instructions           LLC misses per 1000 instr  cpu=intel_skx,intel_icx,intel_spr,intel_emr,intel_gnr  collect=named
+Guest Perf Intel|Cycles_Per_RefCycle    ratio  perf:cycles                 perf:ref-cycles             core cycles per reference cycle  cpu=intel_skx,intel_icx,intel_spr,intel_emr,intel_gnr  collect=named
+Guest Perf Intel|L3_Load_Miss_PTI       pti    perf:l3_load_miss           perf:instructions           retired loads that missed the L3 per 1000 instr  cpu=intel_skx,intel_icx,intel_spr,intel_emr,intel_gnr  collect=named
+Guest Perf Intel|L3_Miss_Stall_Pct      pct    perf:l3_miss_stall          perf:cycles                 share of cycles stalled while an L3-miss load is outstanding  cpu=intel_skx,intel_icx,intel_spr,intel_emr,intel_gnr  collect=named
+Guest Perf Intel|L3_Miss_Stall_Per_Miss ratio  perf:l3_miss_stall          perf:l3_load_miss           stall cycles per retired load that missed the L3  cpu=intel_skx,intel_icx,intel_spr,intel_emr,intel_gnr  collect=named
+Guest Perf Intel|DTLB_Walk_Cycles       ratio  perf:walk_pending           perf:dTLB-load-misses       page-walk cycles per completed page walk (loads)  cpu=intel_skx,intel_icx,intel_spr,intel_emr,intel_gnr  collect=named
+Guest Perf Intel|Ref_Cycles             raw    perf:ref-cycles             -                           reference cycles  cpu=intel_skx,intel_icx,intel_spr,intel_emr,intel_gnr  collect=named
+Guest Perf Intel|L3_Load_Miss           raw    perf:l3_load_miss           -                           retired loads that missed the L3  cpu=intel_skx,intel_icx,intel_spr,intel_emr,intel_gnr  collect=named
+Guest Perf Intel|L3_Miss_Stall          raw    perf:l3_miss_stall          -                           cycles stalled while an L3-miss load is outstanding  cpu=intel_skx,intel_icx,intel_spr,intel_emr,intel_gnr  collect=named
+Guest Perf Intel|DTLB_Walk_Pending      raw    perf:walk_pending           -                           page-walk cycles for loads, summed over the walks in progress  cpu=intel_skx,intel_icx,intel_spr,intel_emr,intel_gnr  collect=named
 "
 
 # ==========================================================
@@ -388,8 +473,8 @@ Guest Perf AMD|L1D_Fill_L3              raw    perf:dc_fill_l3             -    
 # One line = <short name>  <CPU classes>  <perf event string>  <event code, vendor event name>
 # The short name is what perf prints (name=...), so keep both the same.
 # CPU classes: written as after cpu= in the metric table (amd_zen = every Zen
-#   class, a comma list, or "any"). A short name may have several lines; the
-#   first line whose classes include this CPU is used.
+#   class, intel = every Intel CPU, a comma list, or "any"). A short name may
+#   have several lines; the first line whose classes include this CPU is used.
 # AMD: config = (umask << 8) | event code  (core events with a code up to 0xFF).
 # Source of the AMD lines: Linux kernel, tools/perf/pmu-events/arch/x86/amdzen1
 #   .. amdzen5 (one event list per Zen generation, maintained by AMD). Which
@@ -407,6 +492,23 @@ Guest Perf AMD|L1D_Fill_L3              raw    perf:dc_fill_l3             -    
 #   PMCx085 (L2 ITLB miss): the unit mask for all page sizes differs per list;
 #   the Zen 1 list has no unit mask on the event itself and AMD's recommended
 #   event l2_itlb_misses (0x07) is used there.
+# Intel [v4.7]: event=, umask= and cmask= are the EventCode, UMask and CounterMask
+#   fields of Intel's event lists (github.com/intel/perfmon: skylakex 1.37,
+#   cascadelakex 1.25, icelakex 1.31, sapphirerapids 1.40, emeraldrapids 1.25,
+#   graniterapids 1.21; which CPUID model uses which list: mapfile.csv there).
+#   Model 55h covers the skylakex and the cascadelakex list; the codes below are
+#   the same in both. The lists give general counters 0-3 as the only counters of
+#   all three coded events, and of DTLB_LOAD_MISSES.WALK_COMPLETED as well, which
+#   is what the kernel counts for dTLB-load-misses on these CPUs
+#   (arch/x86/events/intel/core.c: 0xe08 in the Skylake table, also used for Ice
+#   Lake; 0xe12 in the Golden Cove table, used from Sapphire Rapids on).
+#   l3_miss_stall: the lists from Sapphire Rapids on have the event under two
+#   names; MEMORY_ACTIVITY.STALLS_L3_MISS is used there, the event of the host
+#   collector (vmkperf_ops_push, key l3_stall), so guest and host values compare.
+#   walk_pending on Skylake-SP / Cascade Lake-SP: the list says the duration of
+#   EPT page walks is excluded on that microarchitecture.
+#   ref-cycles has no line here: perf knows the name, and it counts on fixed
+#   counter 2 only (CPU_CLK_UNHALTED.REF_TSC).
 # ==========================================================
 PERF_ALIAS_TABLE="
 l2_dtlb_miss   amd_zen                      cpu/config=0xf045,name=l2_dtlb_miss/   PMCx045 umask 0xf0  ls_l1_d_tlb_miss.all_l2_miss (Zen 4-5), l2_dtlb_misses (Zen 1-3)
@@ -420,6 +522,11 @@ l1_dtlb_miss   amd_zen                      cpu/config=0xff45,name=l1_dtlb_miss/
 l2_itlb_miss   amd_zen4,amd_zen5            cpu/config=0x0f85,name=l2_itlb_miss/   PMCx085 umask 0x0f  bp_l1_tlb_miss_l2_tlb_miss.all
 l2_itlb_miss   amd_zen2,amd_zen3            cpu/config=0xff85,name=l2_itlb_miss/   PMCx085 umask 0xff  bp_l1_tlb_miss_l2_tlb_miss
 l2_itlb_miss   amd_zen1                     cpu/config=0x0785,name=l2_itlb_miss/   PMCx085 umask 0x07  l2_itlb_misses
+l3_load_miss   intel_skx,intel_icx,intel_spr,intel_emr,intel_gnr   cpu/event=0xd1,umask=0x20,name=l3_load_miss/            MEM_LOAD_RETIRED.L3_MISS
+l3_miss_stall  intel_skx,intel_icx             cpu/event=0xa3,umask=0x06,cmask=6,name=l3_miss_stall/   CYCLE_ACTIVITY.STALLS_L3_MISS
+l3_miss_stall  intel_spr,intel_emr,intel_gnr   cpu/event=0x47,umask=0x09,cmask=9,name=l3_miss_stall/   MEMORY_ACTIVITY.STALLS_L3_MISS
+walk_pending   intel_skx,intel_icx             cpu/event=0x08,umask=0x10,name=walk_pending/            DTLB_LOAD_MISSES.WALK_PENDING
+walk_pending   intel_spr,intel_emr,intel_gnr   cpu/event=0x12,umask=0x10,name=walk_pending/            DTLB_LOAD_MISSES.WALK_PENDING
 "
 
 
@@ -438,7 +545,7 @@ l2_itlb_miss   amd_zen1                     cpu/config=0x0785,name=l2_itlb_miss/
 # chmod 600. Git holds this file with the keys only; never commit it with values.
 # ==========================================================
 OPS_CONFIG_NAME="ops_local.conf"
-SCRIPT_VERSION="4.6"
+SCRIPT_VERSION="4.7"
 
 OPS_STAT_ROOT="Custom Metrics"
 # --target bm: kinds of the object that is created when Ops has none with the host's name.
@@ -524,10 +631,12 @@ PERF_BAD_N=0
 
 declare -a M_GROUP M_NAME M_CALC M_SRC1 M_SRC2 M_ACTIVE M_INSCOPE
 declare -a M_CPU               # cpu=/cpu!= condition of the line ("" = every CPU)
+declare -a M_OPT               # 1 = collect=named line: collected only when its name is given with --collect
 declare -a M_NA                # 1 = the line does not apply to this CPU class
 declare -a M_PREV1 M_PREV2     # previous cumulative values of source 1 / 2 for delta and dspct ("" = none yet)
 declare -a CSV_ROW             # this minute's values, indexed like the table
 METRIC_N=0
+OPT_N=0                        # number of collect=named lines in the table
 PERF_EVENTS=""                 # perf event strings of the events in use, comma separated (for perf -e)
 PERF_LABELS=""                 # their names as perf prints them, space separated
 # perf events the selected metrics ask for, in metric-table order (= priority for --perf-fit)
@@ -544,7 +653,7 @@ declare -a PROC_SRC PROC_VAL   # meminfo:/vmstat: sources in use and their curre
 PROC_N=0
 PROC_WANT=""
 CPU_VENDOR=""; CPU_FAMILY=-1; CPU_MODEL_NO=-1; CPU_CLASS="other"
-CPU_GROUP=""                   # amd_zen for the classes amd_zen1 .. amd_zen5, "" otherwise
+CPU_GROUP=""                   # amd_zen for the classes amd_zen1 .. amd_zen5, intel for intel_skx .. intel_gnr, "" otherwise
 NA_N=0                         # selected metrics that do not apply to this CPU class
 PERF_PID=""                    # the perf process of the current interval
 PERF_HOLD=0                    # 1 = do not start perf on this boundary (it starts on the next one)
@@ -582,6 +691,8 @@ Options:
                               so no PMU load and no perf_event_paranoid needed
                        perf = perf metrics only, THP metrics skipped
                        a,b  = explicit metric names, exactly as --list prints them
+                     Lines that --list marks collect=named are collected only
+                     this way, by name: both and perf leave them out.
                      Unselected metrics keep an empty CSV column, so files from
                      different hosts/settings still merge as one table.
   --target WHERE     Ops push target: vm | any | bm [default: vm]
@@ -885,7 +996,27 @@ detect_cpu_class() {
     case "$CPU_MODEL_NO" in ''|*[!0-9]*) CPU_MODEL_NO=-1 ;; esac
     CPU_GROUP=""
     case "$CPU_VENDOR" in
-        GenuineIntel) CPU_CLASS="intel" ;;
+        GenuineIntel)
+            CPU_CLASS="intel"
+            # Xeon generation from the model number (family 6; decimal here), as the Linux kernel
+            # names the models in arch/x86/include/asm/intel-family.h. The raw event codes of the
+            # alias table differ per generation. Every other Intel model keeps the class "intel".
+            #   85 (55h)            Skylake-SP, Cascade Lake-SP, Cooper Lake-SP
+            #   106, 108 (6Ah 6Ch)  Ice Lake-SP, Ice Lake-D
+            #   143 (8Fh)           Sapphire Rapids
+            #   207 (CFh)           Emerald Rapids
+            #   173, 174 (ADh AEh)  Granite Rapids, Granite Rapids-D
+            if [ "$CPU_FAMILY" -eq 6 ]; then
+                case "$CPU_MODEL_NO" in
+                    85)      CPU_CLASS="intel_skx" ;;
+                    106|108) CPU_CLASS="intel_icx" ;;
+                    143)     CPU_CLASS="intel_spr" ;;
+                    207)     CPU_CLASS="intel_emr" ;;
+                    173|174) CPU_CLASS="intel_gnr" ;;
+                esac
+            fi
+            # cpu=intel in the tables means every Intel CPU, the generation classes included
+            case "$CPU_CLASS" in intel_*) CPU_GROUP="intel" ;; esac ;;
         AuthenticAMD)
             CPU_CLASS="amd"
             # Zen generation from family and model (decimal here): the ranges the Linux kernel uses to
@@ -915,7 +1046,7 @@ detect_cpu_class() {
 }
 detect_cpu_class
 
-cpu_match() {   # $1 = class list: a class, the group name amd_zen, "any", or several joined with commas. 0 = this CPU is in it
+cpu_match() {   # $1 = class list: a class, a group name (amd_zen, intel), "any", or several joined with commas. 0 = this CPU is in it
     local rest="$1" p
     while [ -n "$rest" ]; do
         p="${rest%%,*}"
@@ -1012,9 +1143,10 @@ metric_scope() {   # $1=src1 $2=src2 -> perf | thp
     esac
 }
 
-in_scope() {   # $1=metric scope  $2=metric name. 0 = selected by --collect
+in_scope() {   # $1=metric scope  $2=metric name  $3=1 for a collect=named line. 0 = selected by --collect
     case "$COLLECT_MODE" in
         group)
+            [ "${3:-0}" = "1" ] && return 1      # collect=named: never part of both / perf / thp
             [ "$COLLECT_SCOPE" = "both" ] && return 0
             [ "$COLLECT_SCOPE" = "$1" ] && return 0
             return 1 ;;
@@ -1028,7 +1160,7 @@ in_scope() {   # $1=metric scope  $2=metric name. 0 = selected by --collect
 }
 
 parse_table() {
-    local line grp rest name calc s1 s2 f sc w cond n
+    local line grp rest name calc s1 s2 f sc w cond n opt
     while IFS= read -r line; do
         case "$line" in ''|\#*) continue ;; esac
         grp="${line%%|*}"
@@ -1039,16 +1171,20 @@ parse_table() {
         set -- $rest
         calc="${1:-}"; s1="${2:-}"; s2="${3:-}"
         { [ -z "$calc" ] || [ -z "$s1" ]; } && { echo "[ERROR] table parse failed: '${line}'" >&2; exit 1; }
-        cond=""
+        cond=""; opt="0"
         for w in "$@"; do
-            case "$w" in cpu=*|cpu!=*) cond="$w" ;; esac
+            case "$w" in
+                cpu=*|cpu!=*)  cond="$w" ;;
+                collect=named) opt="1" ;;
+            esac
         done
         n="$METRIC_N"
         M_GROUP[$n]="$grp"; M_NAME[$n]="$name"; M_CALC[$n]="$calc"
         M_SRC1[$n]="$s1";   M_SRC2[$n]="$s2";   M_CPU[$n]="$cond"
-        M_PREV1[$n]="";     M_PREV2[$n]=""
+        M_PREV1[$n]="";     M_PREV2[$n]="";     M_OPT[$n]="$opt"
+        [ "$opt" = "1" ] && OPT_N=$((OPT_N+1))
         sc=$(metric_scope "$s1" "$s2")
-        if in_scope "$sc" "$name"; then
+        if in_scope "$sc" "$name" "$opt"; then
             M_INSCOPE[$n]="1"
             if cpu_applies "$cond"; then
                 M_NA[$n]="0"; M_ACTIVE[$n]="1"
@@ -1106,12 +1242,15 @@ fi
 [ "$SCOPE_N" -eq 0 ] && { echo "[ERROR] --collect selected no metric" >&2; exit 1; }
 CPU_LABEL="${CPU_CLASS} [${CPU_VENDOR:-unknown vendor}, family ${CPU_FAMILY}, model ${CPU_MODEL_NO}]"
 
+# collect=named lines are perf lines that both / perf leave out; the banner says how many there are
+OPT_NOTE=""
+[ "$OPT_N" -gt 0 ] && OPT_NOTE="; ${OPT_N} more are collected only when named"
 case "$COLLECT_MODE" in
     group)
         case "$COLLECT_SCOPE" in
-            both) COLLECT_LABEL="both [perf + THP], ${SCOPE_N}/${METRIC_N} metrics" ;;
+            both) COLLECT_LABEL="both [perf + THP], ${SCOPE_N}/${METRIC_N} metrics${OPT_NOTE}" ;;
             thp)  COLLECT_LABEL="THP only [perf not started], ${SCOPE_N}/${METRIC_N} metrics" ;;
-            perf) COLLECT_LABEL="perf only [THP skipped], ${SCOPE_N}/${METRIC_N} metrics" ;;
+            perf) COLLECT_LABEL="perf only [THP skipped], ${SCOPE_N}/${METRIC_N} metrics${OPT_NOTE}" ;;
         esac ;;
     names) COLLECT_LABEL="named [${COLLECT_NAMES}], ${SCOPE_N}/${METRIC_N} metrics" ;;
 esac
@@ -1141,13 +1280,17 @@ if [ "$DO_LIST" -eq 1 ]; then
     echo "  sel = selected by --collect   -   = not selected (empty CSV column)"
     echo "  n/a = selected, but the line is for another CPU class (empty CSV column)"
     echo "  cpu=amd_zen means amd_zen1 .. amd_zen5"
+    echo "  cpu=intel means every Intel CPU (intel, intel_skx, intel_icx, intel_spr, intel_emr, intel_gnr)"
+    echo "  collect=named = collected only when the name is given with --collect (not part of both / perf)"
     i=0
     while [ "$i" -lt "$METRIC_N" ]; do
         if [ "${M_INSCOPE[$i]}" != "1" ]; then mark=" - "
         elif [ "${M_NA[$i]}" = "1" ]; then mark="n/a"
         else mark="sel"; fi
+        tailw="${M_CPU[$i]}"
+        [ "${M_OPT[$i]}" = "1" ] && tailw="${tailw:+$tailw }collect=named"
         printf '  %s  %-20s | %-24s %-6s %s %s %s\n' \
-            "$mark" "${M_GROUP[$i]}" "${M_NAME[$i]}" "${M_CALC[$i]}" "${M_SRC1[$i]}" "${M_SRC2[$i]}" "${M_CPU[$i]}"
+            "$mark" "${M_GROUP[$i]}" "${M_NAME[$i]}" "${M_CALC[$i]}" "${M_SRC1[$i]}" "${M_SRC2[$i]}" "$tailw"
         i=$((i+1))
     done
     echo "───────────────────────────────────────────"
@@ -1163,6 +1306,26 @@ if [ "$DO_LIST" -eq 1 ]; then
     fi
     echo "Ops tree: <object> > ${OPS_STAT_ROOT} > <group> > <metric>"
     exit 0
+fi
+
+# --collect with names: a name whose line belongs to another CPU class cannot be collected on
+# this CPU. Say so at start. When that is true of every name, end here: the run would only
+# write empty rows, which look like missing data.
+if [ "$COLLECT_MODE" = "names" ] && [ "$NA_N" -gt 0 ]; then
+    NA_NAMES=""
+    i=0
+    while [ "$i" -lt "$METRIC_N" ]; do
+        if [ "${M_INSCOPE[$i]}" = "1" ] && [ "${M_NA[$i]}" = "1" ]; then
+            NA_NAMES="${NA_NAMES:+$NA_NAMES, }${M_NAME[$i]}"
+        fi
+        i=$((i+1))
+    done
+    if [ "$NA_N" -ge "$SCOPE_N" ]; then
+        echo "[ERROR] --collect: none of the named metrics is defined for the CPU class of this host, ${CPU_LABEL}: ${NA_NAMES}" >&2
+        echo "        bash $0 --list shows the CPU class of every line." >&2
+        exit 1
+    fi
+    echo "[WARN] --collect: not defined for the CPU class of this host, ${CPU_LABEL}; these stay empty: ${NA_NAMES}" >&2
 fi
 
 
@@ -1758,7 +1921,11 @@ run_support_probe() {
         # tell "you did not ask for it" apart from "this CPU cannot do it"
         if [ "${M_INSCOPE[$i]}" != "1" ]; then
             skipped=$((skipped+1))
-            printf ' skipped   %-24s not selected by --collect\n' "${M_NAME[$i]}" >> "$SUPPORT_LOG"
+            if [ "${M_OPT[$i]}" = "1" ] && [ "$COLLECT_MODE" = "group" ]; then
+                printf ' skipped   %-24s collected only when named with --collect (collect=named line)\n' "${M_NAME[$i]}" >> "$SUPPORT_LOG"
+            else
+                printf ' skipped   %-24s not selected by --collect\n' "${M_NAME[$i]}" >> "$SUPPORT_LOG"
+            fi
             i=$((i+1)); continue
         fi
         if [ "${M_NA[$i]}" = "1" ]; then

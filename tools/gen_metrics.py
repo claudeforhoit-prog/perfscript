@@ -37,13 +37,27 @@ def table(head, rows):
 CALC = {"raw": "값 그대로", "ratio": "s1/s2", "pct": "s1/s2×100", "spct": "s1/(s1+s2)×100",
         "delta": "1분 증가분", "dspct": "Δs1/(Δs1+Δs2)×100", "pti": "s1/s2×1000"}
 
+INTEL_CLS = {"intel_skx": "SKX", "intel_icx": "ICX", "intel_spr": "SPR", "intel_emr": "EMR", "intel_gnr": "GNR"}
+
 def cpu_label(c):
     if not c:
         return "전체"
     neg = c.startswith("cpu!=")
-    v = c.split("=", 1)[1].replace("amd_zen1", "Zen 1").replace("amd_zen2", "Zen 2") \
-        .replace("amd_zen3", "Zen 3").replace("amd_zen4", "Zen 4").replace("amd_zen5", "Zen 5") \
-        .replace("amd_zen", "AMD Zen 전체").replace(",", ", ")
+    out, intel = [], []
+    for p in c.split("=", 1)[1].split(","):
+        if p in INTEL_CLS:
+            intel.append(INTEL_CLS[p])
+        elif p == "intel":
+            out.append("Intel 전체")
+        elif p == "amd_zen":
+            out.append("AMD Zen 전체")
+        elif p.startswith("amd_zen"):
+            out.append("Zen " + p[len("amd_zen"):])
+        else:
+            out.append(p)
+    if intel:
+        out.append("Intel " + ", ".join(intel))
+    v = ", ".join(out)
     return ("AMD Zen 제외" if v == "AMD Zen 전체" else v + " 제외") if neg else v
 
 def guest(path):
@@ -54,10 +68,17 @@ def guest(path):
             raise SystemExit("cannot parse METRIC_TABLE line: " + l)
         name, calc, s1, s2, rest = m.groups()
         w = rest.split()
-        cpu = w[-1] if w and w[-1].startswith("cpu") else ""
-        desc = " ".join(w[:-1] if cpu else w)
+        cpu, named = "", False
+        while w and (w[-1].startswith("cpu=") or w[-1].startswith("cpu!=") or w[-1] == "collect=named"):
+            t = w.pop()
+            if t == "collect=named":
+                named = True
+            else:
+                cpu = t
+        desc = " ".join(w)
         grp, _, nm = name.partition("|")
-        rows.append([grp, nm, CALC.get(calc, calc), s1, "" if s2 == "-" else s2, cpu_label(cpu), desc])
+        rows.append([grp, nm, CALC.get(calc, calc), s1, "" if s2 == "-" else s2, cpu_label(cpu),
+                     "이름 지정" if named else "기본", desc])
     return rows
 
 GPU_SRC = {"q": "nvidia-smi --query-gpu", "d": "nvidia-smi dmon", "r": "nvidia-smi --query-remapped-rows", "x": "수집기 계산"}
@@ -139,8 +160,12 @@ def build():
     L.append("## 1. 게스트 OS — ops_metric_push.sh v%s (%d개)\n" % (gv, len(rows)))
     L.append("- 출처: 스크립트의 `METRIC_TABLE`. `s1`, `s2` 는 계산에 쓰는 원본 값이다(perf 이벤트, /proc/meminfo, /proc/vmstat).")
     L.append("- 적용 CPU 가 맞지 않는 줄은 수집하지 않고 CSV 칸만 비워 둔다. 지원하지 않는 perf 이벤트를 쓰는 줄은 시작할 때 자동으로 빠진다.")
-    L.append("- `--perf-fit` 을 쓰면 하드웨어 카운터 수에 맞을 때까지 표의 뒤쪽 perf 이벤트부터 뺀다.\n")
-    L.append(table(["그룹", "지표", "계산", "s1", "s2", "적용 CPU", "설명"], rows) + "\n")
+    L.append("- `--perf-fit` 을 쓰면 하드웨어 카운터 수에 맞을 때까지 표의 뒤쪽 perf 이벤트부터 뺀다.")
+    L.append("- 수집 조건이 '기본' 인 줄은 `--collect` 없이 실행할 때 수집한다. '이름 지정' 인 줄(%d개)은 `--collect` 에 "
+             "지표 이름을 적었을 때만 수집하고, `--collect both` 와 `--collect perf` 에는 포함되지 않는다." % sum(1 for r in rows if r[6] == "이름 지정"))
+    L.append("- 적용 CPU 의 Intel 약칭: SKX 는 Skylake-SP, Cascade Lake-SP, Cooper Lake-SP(CPUID model 55h). ICX 는 Ice Lake-SP 와 "
+             "Ice Lake-D(6Ah, 6Ch). SPR 은 Sapphire Rapids(8Fh). EMR 은 Emerald Rapids(CFh). GNR 은 Granite Rapids 와 Granite Rapids-D(ADh, AEh).\n")
+    L.append(table(["그룹", "지표", "계산", "s1", "s2", "적용 CPU", "수집 조건", "설명"], rows) + "\n")
 
     grows, props = gpu(p_path)
     L.append("## 2. GPU — gpu_metric_push.sh v%s (지표 %d개, 구성 정보 %d개)\n" % (pv, len(grows), len(props)))
