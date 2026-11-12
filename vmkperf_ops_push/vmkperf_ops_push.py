@@ -34,7 +34,26 @@ QOS_RMIDS  = "reserved"           # "reserved" = rmID 0 + every rmID with reserv
 # =====================================================================
 
 """
-vmkperf_ops_push.py v1.3 - ESXi host PMU collector -> VCF Operations custom metrics
+vmkperf_ops_push.py v1.4 - ESXi host PMU collector -> VCF Operations custom metrics
+
+v1.4 (2026-11-12): L1D fills from L3 on AMD Zen 3, Zen 4 and Zen 5 hosts
+  - event key dc_fill_l3 in milan.json, genoa.json and turin.json: PMCx044 unit mask 0x02,
+    the L1D fills whose data came from the L3, or from another core's L2, of the same CCX
+    (CCX = core complex: the cores that share one L3 cache).
+  - metrics L1D_Fill_L3, L1D_Fill_L3_PTI, L1D_Fill_L3_Pct at the end of events/metrics_amd.json.
+  - dc_fill_l3 is the last event of each file. These CPUs have six counters and the first
+    six events take them, so a run without --events starts the same events as v1.3 and
+    the three new metrics stay empty. To count it, name six events or fewer:
+      start --events cycles,instr,l2_dtlb_miss,dc_fill_mem,l2_miss,dc_fill_l3
+    L1D_Fill_L3_Pct needs dc_fill_all as well; it stays empty with the list above.
+    For the share, name dc_fill_all instead of l2_dtlb_miss.
+  - Purpose: ESXi has no LLC occupancy reading on AMD hosts, so L3 contention is looked
+    for in the fill sources. The expected sign: fills from L3 go down and fills from DRAM
+    (L1D_Fill_Mem) go up by about the same count.
+  - Zen 1 (naples.json) has no fill-by-source event: the three metrics stay empty there.
+    Zen 2 (rome.json, metrics_amd_zen2.json) is as in v1.3: bit 0x02 of its PMCx043 also
+    counts caches of other CCXs on the same die.
+  Intel hosts behave as in v1.0. Everything else is as in v1.3.
 
 v1.3 (2026-11-12): connection settings moved out of the script
   - the Operations address, account, encrypted password and its key are read from
@@ -118,7 +137,7 @@ CSV as well (file kept until you delete it; the script never removes files)
 """
 import sys, os, re, json, time, datetime, subprocess, signal, argparse, ssl, base64
 
-VERSION = "1.3"
+VERSION = "1.4"
 HERE = os.path.dirname(os.path.abspath(__file__))
 PID_FILE = "/tmp/vmkperf_ops_push.pid"
 STATE_FILE = "/tmp/vmkperf_ops_push.state"

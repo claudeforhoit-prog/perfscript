@@ -29,6 +29,14 @@ The same key can be a different AMD event name, or a different unit mask, per ge
                 has no unit mask on the event and AMD's recommended l2_itlb_misses (0x07) is used
   dc_fill_mem / dc_fill_all  PMCx044 (any L1D fill by data source) is listed from Zen 3 on.
                 The Zen 1 file has no such event; the metrics that need it stay empty.
+  dc_fill_l3    PMCx044 unit mask 0x02: fills from the L3, or from another core's L2, of the
+                same CCX. Named ls_any_fills_from_sys.local_ccx in Zen 4-5 and
+                ls_any_fills_from_sys.int_cache in Zen 3. AMD's recommended Zen 3 event
+                l1_data_cache_fills_from_within_same_ccx is 0x03 (it adds the core's own L2)
+                and is not used. Last in the order: it is started only when it is named in
+                --events, so the six events started by default are the ones of v1.3.
+                Not for Zen 2: bit 0x02 of PMCx043 there also counts caches of other CCXs
+                on the same die. The Zen 1 list has no fill-by-source event.
   dmnd_fill_mem / dmnd_fill_all  Zen 2 only. Its list has PMCx043 (demand L1D fill by data
                 source) with one unit-mask bit per source and no combined event, so the unit
                 masks of the named sub-events are OR-ed: DRAM/IO = 0x08 | 0x40, every listed
@@ -48,10 +56,11 @@ DESC = {
     "dmnd_fill_all": "L1 data cache demand fills from every listed source",
     "l1_dtlb_miss": "L1 DTLB misses, all page sizes",
     "l2_itlb_miss": "instruction fetches that missed the L1 and L2 ITLB (page walks)",
+    "dc_fill_l3":   "L1 data cache fills from the L3, or another core's L2, of the same CCX",
 }
 # key order = counter priority
 ORDER = ["cycles", "instr", "l2_dtlb_miss", "dc_fill_mem", "dmnd_fill_mem", "l2_miss", "dc_fill_all", "dmnd_fill_all",
-         "l1_dtlb_miss", "l2_itlb_miss"]
+         "l1_dtlb_miss", "l2_itlb_miss", "dc_fill_l3"]
 
 # AMD event name per key in each generation's list. A key that is absent is not used for that
 # generation. A tuple = sub-events of one event code whose unit masks are OR-ed.
@@ -61,7 +70,7 @@ ZEN123 = {"cycles": "ls_not_halted_cyc", "instr": "ex_ret_instr", "l2_dtlb_miss"
 ZEN45 = {"cycles": "ls_not_halted_cyc", "instr": "ex_ret_instr", "l2_dtlb_miss": "ls_l1_d_tlb_miss.all_l2_miss",
          "dc_fill_mem": "ls_any_fills_from_sys.dram_io_all", "l2_miss": "l2_cache_req_stat.ic_dc_miss_in_l2",
          "dc_fill_all": "ls_any_fills_from_sys.all", "l1_dtlb_miss": "ls_l1_d_tlb_miss.all",
-         "l2_itlb_miss": "bp_l1_tlb_miss_l2_tlb_miss.all"}
+         "l2_itlb_miss": "bp_l1_tlb_miss_l2_tlb_miss.all", "dc_fill_l3": "ls_any_fills_from_sys.local_ccx"}
 
 def with_(base, **more):
     d = dict(base); d.update(more); return d
@@ -82,7 +91,8 @@ GENERATIONS = {
     "milan":  {"list": "amdzen3", "family_model": ["25-1"],
                "label": "AMD Zen 3: EPYC 7003/7003X Series (CPUID 19.01)",
                "names": with_(ZEN123, l2_itlb_miss="bp_l1_tlb_miss_l2_tlb_miss",
-                              dc_fill_mem="l1_data_cache_fills_from_memory", dc_fill_all="l1_data_cache_fills_all")},
+                              dc_fill_mem="l1_data_cache_fills_from_memory", dc_fill_all="l1_data_cache_fills_all",
+                              dc_fill_l3="ls_any_fills_from_sys.int_cache")},
     "genoa":  {"list": "amdzen4", "family_model": ["25-17", "25-160"],
                "label": "AMD Zen 4: EPYC 9004 Series (CPUID 19.11, 19.A0), EPYC 8004 Series (19.A0)",
                "names": ZEN45},

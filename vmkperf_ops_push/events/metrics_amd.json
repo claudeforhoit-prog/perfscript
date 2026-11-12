@@ -1,5 +1,5 @@
 {
-  "_comment": "Derived metrics for AMD Zen hosts (events/naples.json, milan.json, genoa.json, turin.json; Zen 2 uses metrics_amd_zen2.json). Same rules as metrics.json: 'sum' = interval delta summed over the pCPU set; 'pct' = 100*num/den; 'ratio' = scale*num/den. A metric is skipped when any input event is not running or is not in the event file of the CPU generation: dc_fill_mem and dc_fill_all (PMCx044) exist from Zen 3 on, so the L1D_Fill_* metrics stay empty on Zen 1 hosts. _PTI = per thousand instructions, the unit AMD uses for its recommended metrics. Names match the 'Guest Perf AMD' group of ops_metric_push v4.3.",
+  "_comment": "Derived metrics for AMD Zen hosts (events/naples.json, milan.json, genoa.json, turin.json; Zen 2 uses metrics_amd_zen2.json). Same rules as metrics.json: 'sum' = interval delta summed over the pCPU set; 'pct' = 100*num/den; 'ratio' = scale*num/den. A metric is skipped when any input event is not running or is not in the event file of the CPU generation: dc_fill_mem, dc_fill_all and dc_fill_l3 (PMCx044) exist from Zen 3 on, so the L1D_Fill_* metrics stay empty on Zen 1 hosts. dc_fill_l3 is the last event in the event files and is started only when --events names it; until then the L1D_Fill_L3* metrics stay empty. _PTI = per thousand instructions, the unit AMD uses for its recommended metrics. Names match the 'Guest Perf AMD' group of ops_metric_push (L1D_Fill_L3*: v4.6).",
   "log_keys": [
     "IPC",
     "L2_DTLB_Miss_PTI",
@@ -109,6 +109,27 @@
       "den": "instr",
       "scale": 1000,
       "desc": "L2 ITLB misses per 1000 instructions"
+    },
+    {
+      "key": "L1D_Fill_L3",
+      "type": "sum",
+      "src": "dc_fill_l3",
+      "desc": "L1 data cache fills from the L3, or another core's L2, of the same CCX"
+    },
+    {
+      "key": "L1D_Fill_L3_PTI",
+      "type": "ratio",
+      "num": "dc_fill_l3",
+      "den": "instr",
+      "scale": 1000,
+      "desc": "L1D fills from L3 or another L2 of the same CCX per 1000 instructions"
+    },
+    {
+      "key": "L1D_Fill_L3_Pct",
+      "type": "pct",
+      "num": "dc_fill_l3",
+      "den": "dc_fill_all",
+      "desc": "share of L1D fills that came from L3 or another L2 of the same CCX"
     }
   ]
 }

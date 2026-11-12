@@ -4,11 +4,11 @@
 
 | 수집기 | 판 | 실행 위치 | Ops 지표 경로 |
 | :-- | :-- | :-- | :-- |
-| ops_metric_push.sh | 4.5 | 게스트 OS, BM 호스트(--target bm) | VM 또는 BM 객체 > Custom Metrics > <그룹> > <지표> |
+| ops_metric_push.sh | 4.6 | 게스트 OS, BM 호스트(--target bm) | VM 또는 BM 객체 > Custom Metrics > <그룹> > <지표> |
 | gpu_metric_push.sh | 1.2 | 게스트 OS (GPU DirectPath I/O), BM 호스트(--target bm) | VM 또는 BM 객체 > Custom Metrics > Guest GPU > gpu<N> > <지표> |
-| vmkperf_ops_push.py | 1.3 | ESXi 호스트 | Host > Custom Metrics > Host Perf > <지표> |
+| vmkperf_ops_push.py | 1.4 | ESXi 호스트 | Host > Custom Metrics > Host Perf > <지표> |
 
-## 1. 게스트 OS — ops_metric_push.sh v4.5 (42개)
+## 1. 게스트 OS — ops_metric_push.sh v4.6 (45개)
 
 - 출처: 스크립트의 `METRIC_TABLE`. `s1`, `s2` 는 계산에 쓰는 원본 값이다(perf 이벤트, /proc/meminfo, /proc/vmstat).
 - 적용 CPU 가 맞지 않는 줄은 수집하지 않고 CSV 칸만 비워 둔다. 지원하지 않는 perf 이벤트를 쓰는 줄은 시작할 때 자동으로 빠진다.
@@ -58,6 +58,9 @@
 | Guest Perf AMD | L1D_Demand_Fill_All | 값 그대로 | perf:dmnd_fill_all |  | Zen 2 | L1D demand fills from every listed source (Zen 2) |
 | Guest Perf AMD | L1_DTLB_Miss | 값 그대로 | perf:l1_dtlb_miss |  | AMD Zen 전체 | L1 DTLB misses |
 | Guest Perf AMD | L2_ITLB_Miss | 값 그대로 | perf:l2_itlb_miss |  | AMD Zen 전체 | L2 ITLB misses (page walks) |
+| Guest Perf AMD | L1D_Fill_L3_PTI | s1/s2×1000 | perf:dc_fill_l3 | perf:instructions | Zen 3, Zen 4, Zen 5 | L1D fills from L3 or another L2 of the same CCX per 1000 instr |
+| Guest Perf AMD | L1D_Fill_L3_Pct | s1/s2×100 | perf:dc_fill_l3 | perf:dc_fill_all | Zen 3, Zen 4, Zen 5 | share of L1D fills that came from L3 or another L2 of the same CCX |
+| Guest Perf AMD | L1D_Fill_L3 | 값 그대로 | perf:dc_fill_l3 |  | Zen 3, Zen 4, Zen 5 | L1D fills from L3 or another L2 of the same CCX |
 
 ## 2. GPU — gpu_metric_push.sh v1.2 (지표 36개, 구성 정보 17개)
 
@@ -125,7 +128,7 @@
 | Persistence Mode | persistence_mode |
 | Compute Mode | compute_mode |
 
-## 3. ESXi 호스트 — vmkperf_ops_push.py v1.3
+## 3. ESXi 호스트 — vmkperf_ops_push.py v1.4
 
 - 출처: `events/<세대>.json`(이벤트), `events/metrics*.json`(지표 계산), `vmkperf_ops_push.py` 의 `plan_counters()`(카운터 배치).
 - 수집 여부는 이 스크립트가 수집기의 배치 함수로 계산한 값이다. 실제 호스트에서는 `check` 와 시작 로그의 `SKIPPED` 줄로 확인한다.
@@ -137,11 +140,11 @@
 | sapphirerapids (Intel Xeon 4th Gen (Sapphire Rapids)) | 6-143 | 8 + 고정(cycles) | 9 (시작 못 함: l3_load_hit) | 13 | L3_Load_Hit, L3_Load_HitRate_Pct | - |
 | emeraldrapids (Intel Xeon 5th Gen (Emerald Rapids)) | 6-207 | 8 + 고정(cycles) | 9 (시작 못 함: l3_load_hit) | 13 | L3_Load_Hit, L3_Load_HitRate_Pct | - |
 | graniterapids (Intel Xeon 6 (Granite Rapids)) | 6-173, 6-174 | 8 + 고정(cycles) | 9 (시작 못 함: l3_load_hit) | 13 | L3_Load_Hit, L3_Load_HitRate_Pct | - |
-| naples (AMD Zen 1) | 23-1, 23-17 | 6 | 6 (시작 못 함: 없음) | 11 | - | L1D_Fill_Mem, L1D_Fill_All, L1D_Fill_Mem_PTI, L1D_Fill_Mem_Pct |
+| naples (AMD Zen 1) | 23-1, 23-17 | 6 | 6 (시작 못 함: 없음) | 11 | - | L1D_Fill_Mem, L1D_Fill_All, L1D_Fill_Mem_PTI, L1D_Fill_Mem_Pct, L1D_Fill_L3, L1D_Fill_L3_PTI, L1D_Fill_L3_Pct |
 | rome (AMD Zen 2) | 23-49 | 6 | 8 (시작 못 함: l1_dtlb_miss, l2_itlb_miss) | 11 | L1_DTLB_Miss, L2_ITLB_Miss, L1_DTLB_Miss_PTI, L2_ITLB_Miss_PTI | - |
-| milan (AMD Zen 3) | 25-1 | 6 | 8 (시작 못 함: l1_dtlb_miss, l2_itlb_miss) | 11 | L1_DTLB_Miss, L2_ITLB_Miss, L1_DTLB_Miss_PTI, L2_ITLB_Miss_PTI | - |
-| genoa (AMD Zen 4) | 25-160, 25-17 | 6 | 8 (시작 못 함: l1_dtlb_miss, l2_itlb_miss) | 11 | L1_DTLB_Miss, L2_ITLB_Miss, L1_DTLB_Miss_PTI, L2_ITLB_Miss_PTI | - |
-| turin (AMD Zen 5) | 26-17, 26-2 | 6 | 8 (시작 못 함: l1_dtlb_miss, l2_itlb_miss) | 11 | L1_DTLB_Miss, L2_ITLB_Miss, L1_DTLB_Miss_PTI, L2_ITLB_Miss_PTI | - |
+| milan (AMD Zen 3) | 25-1 | 6 | 9 (시작 못 함: l1_dtlb_miss, l2_itlb_miss, dc_fill_l3) | 11 | L1_DTLB_Miss, L2_ITLB_Miss, L1_DTLB_Miss_PTI, L2_ITLB_Miss_PTI, L1D_Fill_L3, L1D_Fill_L3_PTI, L1D_Fill_L3_Pct | - |
+| genoa (AMD Zen 4) | 25-160, 25-17 | 6 | 9 (시작 못 함: l1_dtlb_miss, l2_itlb_miss, dc_fill_l3) | 11 | L1_DTLB_Miss, L2_ITLB_Miss, L1_DTLB_Miss_PTI, L2_ITLB_Miss_PTI, L1D_Fill_L3, L1D_Fill_L3_PTI, L1D_Fill_L3_Pct | - |
+| turin (AMD Zen 5) | 26-17, 26-2 | 6 | 9 (시작 못 함: l1_dtlb_miss, l2_itlb_miss, dc_fill_l3) | 11 | L1_DTLB_Miss, L2_ITLB_Miss, L1_DTLB_Miss_PTI, L2_ITLB_Miss_PTI, L1D_Fill_L3, L1D_Fill_L3_PTI, L1D_Fill_L3_Pct | - |
 
 세대별 대상 CPU
 
@@ -185,6 +188,9 @@
 | L1D_Fill_Mem_Pct | pct | 100 × dc_fill_mem / dc_fill_all | metrics_amd.json | share of L1D fills that came from DRAM or MMIO |
 | L1_DTLB_Miss_PTI | ratio | 1000 × l1_dtlb_miss / instr | metrics_amd.json, metrics_amd_zen2.json | L1 DTLB misses per 1000 instructions |
 | L2_ITLB_Miss_PTI | ratio | 1000 × l2_itlb_miss / instr | metrics_amd.json, metrics_amd_zen2.json | L2 ITLB misses per 1000 instructions |
+| L1D_Fill_L3 | sum | dc_fill_l3 | metrics_amd.json | L1 data cache fills from the L3, or another core's L2, of the same CCX |
+| L1D_Fill_L3_PTI | ratio | 1000 × dc_fill_l3 / instr | metrics_amd.json | L1D fills from L3 or another L2 of the same CCX per 1000 instructions |
+| L1D_Fill_L3_Pct | pct | 100 × dc_fill_l3 / dc_fill_all | metrics_amd.json | share of L1D fills that came from L3 or another L2 of the same CCX |
 | L1D_Demand_Fill_Mem | sum | dmnd_fill_mem | metrics_amd_zen2.json | L1 data cache demand fills from DRAM or IO |
 | L1D_Demand_Fill_All | sum | dmnd_fill_all | metrics_amd_zen2.json | L1 data cache demand fills from every listed source |
 | L1D_Demand_Fill_Mem_PTI | ratio | 1000 × dmnd_fill_mem / instr | metrics_amd_zen2.json | L1D demand fills from DRAM or IO per 1000 instructions |

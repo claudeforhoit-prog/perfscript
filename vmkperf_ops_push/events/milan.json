@@ -98,6 +98,17 @@
       "restricted": false,
       "desc": "instruction fetches that missed the L1 and L2 ITLB (page walks)",
       "file": "cache.json"
+    },
+    {
+      "key": "dc_fill_l3",
+      "name": "ls_any_fills_from_sys.int_cache",
+      "event": "0x44",
+      "umask": "0x02",
+      "cmask": 0,
+      "counters": "0,1,2,3,4,5",
+      "restricted": false,
+      "desc": "L1 data cache fills from the L3, or another core's L2, of the same CCX",
+      "file": "memory.json"
     }
   ]
 }

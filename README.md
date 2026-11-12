@@ -4,9 +4,9 @@ VCF Operations 로 사용자 지표를 전송하는 수집기 세 개를 관리�
 
 | 파일 | 실행 위치 | 수집 내용 | 버전 |
 | :-- | :-- | :-- | :-- |
-| `ops_metric_push.sh` | 게스트 OS, BM 호스트 | perf 지표와 THP 지표 | 4.5 |
+| `ops_metric_push.sh` | 게스트 OS, BM 호스트 | perf 지표와 THP 지표 | 4.6 |
 | `gpu_metric_push.sh` | GPU 를 DirectPath I/O 로 할당받은 게스트 OS, GPU 가 있는 BM 호스트 | nvidia-smi 지표 | 1.2 |
-| `vmkperf_ops_push/vmkperf_ops_push.py` | ESXi 호스트 | vmkperf 지표 | 1.3 |
+| `vmkperf_ops_push/vmkperf_ops_push.py` | ESXi 호스트 | vmkperf 지표 | 1.4 |
 
 ## 1. 접속 설정 파일 ops_local.conf
 
@@ -80,6 +80,42 @@ bash ops_metric_push.sh --stop
 
 객체 생성에는 VCF Operations API 의 `POST /suite-api/api/resources/adapterkinds/{adapterKindKey}` 를 쓴다. 지정한 adapter kind 와 object type 이 Operations 에 없으면 Operations 가 함께 만든다. 만든 객체의 지표는 `POST /suite-api/api/resources/{id}/stats/adapterkinds/{adapterKind}` 로, GPU 수집기의 구성 정보는 `POST /suite-api/api/resources/{id}/properties/adapterkinds/{adapterKind}` 로 보낸다. 이미 있던 객체에는 VM 과 같은 경로(`/stats`, `/properties`)로 보낸다.
 
+### AMD 호스트의 L3 경합 확인 (L1D fill 출처 지표)
+
+ESXi 의 AMD 호스트에서는 LLC occupancy 를 읽을 수 없다. 그래서 L1 data cache 를 채운 데이터가 어디에서 왔는지를 게스트 안에서 센다. 게스트 수집기 4.6 에 이벤트 `dc_fill_l3` 와 지표 세 개를 추가했다.
+
+| 지표 | 계산 | 내용 |
+| :-- | :-- | :-- |
+| `L1D_Fill_L3` | `dc_fill_l3` 횟수 | 같은 CCX 의 L3 또는 다른 코어의 L2 에서 온 L1D fill 횟수 |
+| `L1D_Fill_L3_PTI` | `dc_fill_l3` / instructions × 1000 | 명령어 1000개당 횟수 |
+| `L1D_Fill_L3_Pct` | `dc_fill_l3` / `dc_fill_all` × 100 | 전체 L1D fill 중 비율(%) |
+
+- CCX(core complex)는 L3 cache 하나를 함께 쓰는 코어의 묶음이다.
+- 이벤트 코드는 PMCx044, unit mask 0x02 이다. Zen 4 와 Zen 5 목록의 이름은 `ls_any_fills_from_sys.local_ccx`, Zen 3 목록의 이름은 `ls_any_fills_from_sys.int_cache` 이다.
+- 대상은 Zen 3, Zen 4, Zen 5 이다. Zen 2 에는 넣지 않았다. Zen 2 의 PMCx043 unit mask 0x02 는 같은 die 에 있는 다른 CCX 의 cache 에서 온 fill 도 함께 세기 때문이다. Zen 1 목록에는 출처별 fill 이벤트가 없다.
+- L3 경합이 있을 때 예상하는 변화는 다음과 같다. 다른 VM 이 L3 를 사용하는 동안 이 VM 의 `L1D_Fill_L3` 가 줄고, `L1D_Fill_Mem`(DRAM 에서 온 fill)이 비슷한 횟수만큼 늘어난다. 실제 장비에서는 아직 확인하지 않았다.
+
+세 지표는 지표 표의 맨 끝에 있다. 그래서 `--perf-fit` 을 지정하면 `dc_fill_l3` 가 가장 먼저 제외된다. L3 경합을 확인할 때는 아래와 같이 지표 이름을 지정해 실행한다. 이 목록이 요청하는 이벤트는 여섯 개(instructions, cycles, l2_dtlb_miss, dc_fill_mem, l2_miss, dc_fill_l3)다. Zen 코어의 카운터도 여섯 개이므로 multiplexing 이 발생하지 않는다.
+
+```
+nohup bash ops_metric_push.sh --collect IPC_Ratio,Instructions,Cycles,L2_DTLB_Miss_PTI,L1D_Fill_Mem_PTI,L2_Miss_PTI,L2_DTLB_Miss,L1D_Fill_Mem,L2_Miss,L1D_Fill_L3_PTI,L1D_Fill_L3 >& /tmp/ops_push.log &          # csh, tcsh
+nohup bash ops_metric_push.sh --collect IPC_Ratio,Instructions,Cycles,L2_DTLB_Miss_PTI,L1D_Fill_Mem_PTI,L2_Miss_PTI,L2_DTLB_Miss,L1D_Fill_Mem,L2_Miss,L1D_Fill_L3_PTI,L1D_Fill_L3 > /tmp/ops_push.log 2>&1 &      # bash
+```
+
+- 이 실행에는 `--perf-fit` 을 넣지 않는다.
+- 이 목록은 `dc_fill_all` 을 세지 않는다. 그래서 `L1D_Fill_Mem_Pct`, `L1D_Fill_L3_Pct`, `L1D_Fill_All` 은 이 실행에서 비어 있다. 비율이 필요하면 page walk 지표 두 개(`L2_DTLB_Miss_PTI`, `L2_DTLB_Miss`) 대신 `L1D_Fill_All`, `L1D_Fill_Mem_Pct`, `L1D_Fill_L3_Pct` 를 넣는다.
+- 로그의 `perf run` 이 100 보다 작으면 VM 이 쓸 수 있는 카운터가 여섯 개보다 적은 것이다. NMI watchdog 이 카운터 하나를 쓰는 경우가 그 예다. 먼저 `sudo sysctl -w kernel.nmi_watchdog=0` 으로 NMI watchdog 을 끈다. 이 설정은 재부팅하면 원래 값으로 돌아간다.
+- NMI watchdog 을 끌 수 없으면 목록에서 `L2_DTLB_Miss_PTI` 와 `L2_DTLB_Miss` 를 빼서 이벤트를 다섯 개로 줄인다. `L2_Miss` 는 남긴다. L2 miss 는 L3 로 넘어간 요청 수이므로 두 실행의 조건이 같은지 비교하는 데 쓴다.
+- CSV 로도 저장하려면 `--mode both --out 경로` 를 함께 지정한다. Operations 없이 CSV 만 저장하려면 `--mode file --out 경로` 를 지정한다.
+
+호스트 수집기 1.4 에도 같은 이벤트와 지표를 넣었다. 이벤트 파일에서 `dc_fill_l3` 는 맨 끝에 있다. `--events` 없이 시작하면 1.3 과 같은 여섯 이벤트만 시작하고 `L1D_Fill_L3` 지표 세 개는 비어 있다. 호스트에서 세려면 이벤트 키를 여섯 개 이하로 지정한다.
+
+```
+nohup python3 vmkperf_ops_push.py start --events cycles,instr,l2_dtlb_miss,dc_fill_mem,l2_miss,dc_fill_l3 > /dev/null 2>&1 &
+```
+
+이 지정에서는 `dc_fill_all` 을 시작하지 않으므로 `L1D_Fill_L3_Pct` 는 비어 있다. 비율이 필요하면 `l2_dtlb_miss` 대신 `dc_fill_all` 을 지정한다.
+
 ## 3. 버전 관리
 
 - 파일 이름에 버전을 넣지 않는다. 버전은 스크립트 안의 `SCRIPT_VERSION`(셸)과 `VERSION`(Python)에 있고 시작 화면에 표시된다.
@@ -93,6 +129,8 @@ bash ops_metric_push.sh --stop
 | 2026-11-12 | `vmkperf_ops_push.py` | 1.3 | 접속 설정을 `ops_local.conf` 로 분리. `--cred-from` 삭제. `OPS_HOST` 에 `http(s)://` 주소 허용. 수집 동작은 1.2 와 같음 |
 | 2026-11-12 | `ops_metric_push.sh` | 4.5 | BM 호스트 대상 `--target bm` 추가. Operations 에 객체가 없으면 객체를 만들고 전송. `--adapter-kind`, `--resource-kind` 추가. `--target vm`, `--target any` 와 파일 모드 동작은 4.4 와 같음 |
 | 2026-11-12 | `gpu_metric_push.sh` | 1.2 | `--target`(vm, bm), `--name`, `--adapter-kind`, `--resource-kind` 추가. BM 호스트에서 객체가 없으면 객체를 만들고 지표와 구성 정보를 전송. 시작 화면의 target 줄 형식 변경. 수집 동작은 1.1 과 같음 |
+| 2026-11-12 | `ops_metric_push.sh` | 4.6 | AMD Zen 3, Zen 4, Zen 5 용 이벤트 `dc_fill_l3`(PMCx044 unit mask 0x02)와 지표 `L1D_Fill_L3_PTI`, `L1D_Fill_L3_Pct`, `L1D_Fill_L3` 추가. 지표 표의 맨 끝에 추가해 4.5 의 CSV 열 위치와 `--perf-fit` 결과는 그대로임. `--perf-fit` 없이 실행하면 Zen 3, Zen 4, Zen 5 에서 요청 이벤트가 8개에서 9개로 늘어남. 그 밖의 동작은 4.5 와 같음 |
+| 2026-11-12 | `vmkperf_ops_push.py` | 1.4 | AMD Zen 3, Zen 4, Zen 5 이벤트 파일(`milan.json`, `genoa.json`, `turin.json`)의 맨 끝에 `dc_fill_l3` 추가. `metrics_amd.json` 의 맨 끝에 `L1D_Fill_L3`, `L1D_Fill_L3_PTI`, `L1D_Fill_L3_Pct` 추가. `--events` 없이 시작하는 이벤트는 1.3 과 같음. Zen 1, Zen 2, Intel 의 이벤트 파일은 그대로임 |
 
 Git 에 올리기 전의 판은 이 저장소에 없다. 게스트 수집기 4.2 에서 perf 를 한 번만 실행하는 방식과 multiplexing 표시, `--perf-fit` 을 넣었고, 4.3 과 호스트 수집기 1.2 에서 AMD Zen 1~5 이벤트를 넣었다.
 

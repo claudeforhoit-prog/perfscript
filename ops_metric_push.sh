@@ -5,7 +5,26 @@ test "$?BASH_VERSION" = "0" && test -f "$0" && exec /bin/bash "$0" $argv:q
 test "$?BASH_VERSION" = "0" && echo "ops_metric_push.sh: do not source it. Run:  bash ops_metric_push.sh [options]"
 if false; then :; fi
 # ============================================================
-# ops_metric_push.sh  v4.5 (2026-11-12)  English
+# ops_metric_push.sh  v4.6 (2026-11-12)  English
+#
+# v4.6: L1D fills from L3 on AMD Zen 3, Zen 4 and Zen 5  (L1D_Fill_L3 lines)
+#   One more event, dc_fill_l3 (PMCx044 unit mask 0x02), and three metric
+#   lines: L1D_Fill_L3_PTI, L1D_Fill_L3_Pct, L1D_Fill_L3. The event counts
+#   the L1D fills whose data came from the L3 cache, or from the L2 cache of
+#   another core, in the CCX of this core (CCX = core complex: the cores
+#   that share one L3 cache).
+#   Purpose: an AMD host under ESXi has no LLC occupancy monitoring, so L3
+#   contention between VMs is looked for inside the guest. The expected
+#   sign: while another VM takes L3 space, L1D_Fill_L3 of this VM goes down
+#   and L1D_Fill_Mem (fills from DRAM) goes up by about the same count.
+#   The run line is under "L3 contention check" in [How to run].
+#   The three lines are the last lines of the metric table. The CSV columns
+#   of v4.5 keep their positions (three columns follow them), and --perf-fit
+#   keeps the same events as v4.5: dc_fill_l3 is the first event it removes.
+#   Without --perf-fit a Zen 3-5 guest now asks for 9 events (v4.5: 8).
+#   Not on Zen 2: unit mask 0x02 of its event PMCx043 also counts fills from
+#   the caches of other CCXs on the same die. The Zen 1 list has no
+#   fill-by-source event. Collection itself is as in v4.5.
 #
 # v4.5: bare-metal hosts  (--target bm)
 #   The same collection on a host that is not a VM. The name (--name, default
@@ -148,6 +167,23 @@ if false; then :; fi
 #        nohup bash ops_metric_push.sh --target bm > /tmp/ops_push.log 2>&1 &
 #        nohup bash ops_metric_push.sh --target bm >& /tmp/ops_push.log &      # csh/tcsh
 #
+#      L3 contention check on AMD Zen 3-5  [v4.6]. The named metrics need six
+#      events (instructions, cycles, l2_dtlb_miss, dc_fill_mem, l2_miss,
+#      dc_fill_l3), as many as a Zen core has counters, so none is time-shared:
+#        nohup bash ops_metric_push.sh --collect IPC_Ratio,Instructions,Cycles,L2_DTLB_Miss_PTI,L1D_Fill_Mem_PTI,L2_Miss_PTI,L2_DTLB_Miss,L1D_Fill_Mem,L2_Miss,L1D_Fill_L3_PTI,L1D_Fill_L3 > /tmp/ops_push.log 2>&1 &
+#        nohup bash ops_metric_push.sh --collect IPC_Ratio,Instructions,Cycles,L2_DTLB_Miss_PTI,L1D_Fill_Mem_PTI,L2_Miss_PTI,L2_DTLB_Miss,L1D_Fill_Mem,L2_Miss,L1D_Fill_L3_PTI,L1D_Fill_L3 >& /tmp/ops_push.log &      # csh/tcsh
+#      Do not add --perf-fit here: dc_fill_l3 is the first event it removes.
+#      dc_fill_all is not among the six, so L1D_Fill_All, L1D_Fill_Mem_Pct and
+#      L1D_Fill_L3_Pct stay empty in this run. For the shares, name those three
+#      instead of the two page-walk metrics (L2_DTLB_Miss_PTI, L2_DTLB_Miss).
+#      When the log shows "perf run" below 100, the VM has fewer than six free
+#      counters; the NMI watchdog, for example, holds one. Turn it off first
+#      (the setting returns to its boot value after a reboot):
+#        sudo sysctl -w kernel.nmi_watchdog=0
+#      If it has to stay on, leave L2_DTLB_Miss_PTI and L2_DTLB_Miss out of the
+#      list: five events. Keep L2_Miss: L2 misses are the requests that went on
+#      to the L3, and they show whether two runs put the same load on it.
+#
 #      CSV only (no Ops connection) / push + CSV together:
 #        nohup bash ops_metric_push.sh --mode file --out /data/perf > /tmp/ops_push.log 2>&1 &
 #        nohup bash ops_metric_push.sh --mode both --out /data/perf > /tmp/ops_push.log 2>&1 &
@@ -288,6 +324,9 @@ set -u
 # order: with --perf-fit the events are kept in the order they first appear in this
 #        table, so put the lines you need most first. The AMD lines start with the
 #        page-walk and memory-fill events for that reason.
+#        The L1D_Fill_L3 lines [v4.6] are the last lines on purpose: the CSV columns
+#        and the --perf-fit result of v4.5 stay as they were. Ask for them by name
+#        with --collect (see "L3 contention check" in [How to run]).
 # cpu  : optional last word of a line, cpu=<class> or cpu!=<class>.
 #        The line is used only on (cpu=) or only off (cpu!=) that CPU class.
 #        Classes: intel | amd_zen1 .. amd_zen5 | amd | other   (shown by --list)
@@ -338,6 +377,9 @@ Guest Perf AMD|L1D_Fill_All             raw    perf:dc_fill_all            -    
 Guest Perf AMD|L1D_Demand_Fill_All      raw    perf:dmnd_fill_all          -                           L1D demand fills from every listed source (Zen 2)  cpu=amd_zen2
 Guest Perf AMD|L1_DTLB_Miss             raw    perf:l1_dtlb_miss           -                           L1 DTLB misses  cpu=amd_zen
 Guest Perf AMD|L2_ITLB_Miss             raw    perf:l2_itlb_miss           -                           L2 ITLB misses (page walks)  cpu=amd_zen
+Guest Perf AMD|L1D_Fill_L3_PTI          pti    perf:dc_fill_l3             perf:instructions           L1D fills from L3 or another L2 of the same CCX per 1000 instr  cpu=amd_zen3,amd_zen4,amd_zen5
+Guest Perf AMD|L1D_Fill_L3_Pct          pct    perf:dc_fill_l3             perf:dc_fill_all            share of L1D fills that came from L3 or another L2 of the same CCX  cpu=amd_zen3,amd_zen4,amd_zen5
+Guest Perf AMD|L1D_Fill_L3              raw    perf:dc_fill_l3             -                           L1D fills from L3 or another L2 of the same CCX  cpu=amd_zen3,amd_zen4,amd_zen5
 "
 
 # ==========================================================
@@ -353,10 +395,15 @@ Guest Perf AMD|L2_ITLB_Miss             raw    perf:l2_itlb_miss           -    
 #   .. amdzen5 (one event list per Zen generation, maintained by AMD). Which
 #   CPUID family/model uses which list: tools/perf/pmu-events/arch/x86/mapfile.csv.
 #   PMCx044 (L1D fills by data source, any fill) is listed from Zen 3 on.
+#   Its unit mask bit 0x02 is the source "L3, or another L2, of the same CCX"
+#   (dc_fill_l3). AMD's recommended "fills from within the same CCX" (an event
+#   in the Zen 3 list, a metric in the Zen 4-5 lists) uses 0x03, which adds
+#   the fills from the core's own L2; it is not used here.
 #   PMCx043 (L1D demand fills by data source) is what the Zen 2 list has. Its
 #   sub-events are one unit-mask bit per source; dmnd_fill_mem sets the two
 #   DRAM/IO bits (0x08 this die, 0x40 another die), dmnd_fill_all the five
-#   listed bits (0x01 0x02 0x08 0x10 0x40).
+#   listed bits (0x01 0x02 0x08 0x10 0x40). Bit 0x02 there is "local CCX, or
+#   remote CCX on this die", so Zen 2 has no dc_fill_l3 line.
 #   PMCx085 (L2 ITLB miss): the unit mask for all page sizes differs per list;
 #   the Zen 1 list has no unit mask on the event itself and AMD's recommended
 #   event l2_itlb_misses (0x07) is used there.
@@ -366,6 +413,7 @@ l2_dtlb_miss   amd_zen                      cpu/config=0xf045,name=l2_dtlb_miss/
 dc_fill_mem    amd_zen3,amd_zen4,amd_zen5   cpu/config=0x4844,name=dc_fill_mem/    PMCx044 umask 0x48  ls_any_fills_from_sys.dram_io_all (Zen 4-5), l1_data_cache_fills_from_memory (Zen 3)
 l2_miss        amd_zen                      cpu/config=0x0964,name=l2_miss/        PMCx064 umask 0x09  l2_cache_req_stat.ic_dc_miss_in_l2
 dc_fill_all    amd_zen3,amd_zen4,amd_zen5   cpu/config=0xff44,name=dc_fill_all/    PMCx044 umask 0xff  ls_any_fills_from_sys.all (Zen 4-5), l1_data_cache_fills_all (Zen 3)
+dc_fill_l3     amd_zen3,amd_zen4,amd_zen5   cpu/config=0x0244,name=dc_fill_l3/     PMCx044 umask 0x02  ls_any_fills_from_sys.local_ccx (Zen 4-5), ls_any_fills_from_sys.int_cache (Zen 3)
 dmnd_fill_mem  amd_zen2                     cpu/config=0x4843,name=dmnd_fill_mem/  PMCx043 umask 0x48  ls_refills_from_sys.ls_mabresp_lcl_dram + ls_mabresp_rmt_dram
 dmnd_fill_all  amd_zen2                     cpu/config=0x5b43,name=dmnd_fill_all/  PMCx043 umask 0x5b  ls_refills_from_sys, the five listed sources
 l1_dtlb_miss   amd_zen                      cpu/config=0xff45,name=l1_dtlb_miss/   PMCx045 umask 0xff  ls_l1_d_tlb_miss.all
@@ -390,7 +438,7 @@ l2_itlb_miss   amd_zen1                     cpu/config=0x0785,name=l2_itlb_miss/
 # chmod 600. Git holds this file with the keys only; never commit it with values.
 # ==========================================================
 OPS_CONFIG_NAME="ops_local.conf"
-SCRIPT_VERSION="4.5"
+SCRIPT_VERSION="4.6"
 
 OPS_STAT_ROOT="Custom Metrics"
 # --target bm: kinds of the object that is created when Ops has none with the host's name.

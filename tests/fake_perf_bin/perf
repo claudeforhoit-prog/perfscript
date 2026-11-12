@@ -18,7 +18,7 @@ RATES = {"instructions": 3000000, "cycles": 2000000, "cache-misses": 4000, "cach
          "L1-dcache-load-misses": 50000, "L1-dcache-loads": 1000000, "dTLB-load-misses": 300, "dTLB-loads": 1000000,
          "iTLB-load-misses": 20, "iTLB-loads": 4000, "LLC-load-misses": 1500, "LLC-store-misses": 500,
          "dc_fill_mem": 6000, "dc_fill_all": 60000, "l2_miss": 9000, "l2_dtlb_miss": 150, "l1_dtlb_miss": 4500,
-         "l2_itlb_miss": 30, "dmnd_fill_mem": 4000, "dmnd_fill_all": 40000}
+         "l2_itlb_miss": 30, "dmnd_fill_mem": 4000, "dmnd_fill_all": 40000, "dc_fill_l3": 24000}
 
 def env_list(name, default=""):
     return [x for x in os.environ.get(name, default).split(",") if x]
