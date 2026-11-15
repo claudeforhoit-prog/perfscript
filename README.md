@@ -10,6 +10,17 @@ VCF Operations 로 사용자 지표를 전송하는 수집기 세 개를 관리�
 | `gpu_metric_push.sh` | GPU 를 DirectPath I/O 로 할당받은 게스트 OS, GPU 가 있는 BM 호스트 | nvidia-smi 지표 | 1.2 |
 | `vmkperf_ops_push/vmkperf_ops_push.py` | ESXi 호스트 | vmkperf 지표 | 1.5 |
 
+## 0. 저장소 구성
+
+| 폴더 · 파일 | 내용 | 설명 문서 |
+| :-- | :-- | :-- |
+| `ops_metric_push.sh`, `gpu_metric_push.sh`, `vmkperf_ops_push/` | Ops 수집기 3종 | 이 문서, `METRICS.md` |
+| `vm_config/` | VM 실행 설정, VM 순차 기동, CAT 설정 | `SCRIPTS.md` |
+| `cpu_affinity/` | VM 배포 계획, vCPU affinity, vCPU 배치 수집 | `SCRIPTS.md` |
+| `collection_etc/` | 구성 스냅샷, 게스트 구성 기록, phase 추출, 메모리 맵 수집 | `SCRIPTS.md` |
+| `common/`, `mmap_align/` | 접속 정보 일괄 설정, mmap 정렬 라이브러리 | `SCRIPTS.md` |
+| `DEVELOPER.md`, `tests/`, `tools/` | 개발 지침, 시험 도구, 지표 목록 생성 | `DEVELOPER.md` |
+
 ## 1. 접속 설정 파일 ops_local.conf
 
 1. `ops_local.conf` 를 스크립트와 같은 폴더에 둔다. 저장소의 파일에는 키만 있고 값은 비어 있다.
