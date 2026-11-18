@@ -19,6 +19,7 @@ DEVELOPER.md, README.md, METRICS.md 를 먼저 읽어라.
 | `gpu_metric_push.sh` | GPU 가 있는 게스트 OS, BM 호스트 | nvidia-smi 지표와 구성 정보 |
 | `vmkperf_ops_push/vmkperf_ops_push.py` | ESXi 호스트 | vmkperf 지표. 지표 정의는 `events/metrics.json`, CPU 별 이벤트는 `events/<CPU>.json`, CPU 판별은 `events/cpu_map.json`, 버전은 `VERSION` |
 | `vmkperf_ops_push/make_event_json*.py` | 개발 PC | 공개 이벤트 목록에서 `events/<CPU>.json` 생성 |
+| `collection_etc/guest_config_push.sh` | 게스트 OS, BM 호스트 | OS 구성값 10개를 Operations 객체의 속성으로 기록(수집기는 아님. 한 번 실행하고 끝남). `--target bm` 은 수집기와 같은 BM 호스트 객체를 쓴다. 버전은 `SCRIPT_VERSION`, 설명은 `SCRIPTS.md` |
 | `ops_local.conf` | 수집기 옆 | 접속 설정 양식(키만 있고 값은 빈 파일) |
 | `tools/gen_metrics.py` | 개발 PC | 수집기 코드에서 `METRICS.md` 생성 |
 | `tests/` | 개발 PC | 가짜 perf, ESXi 명령 흉내, Operations 흉내 서버 |
@@ -57,7 +58,7 @@ DEVELOPER.md, README.md, METRICS.md 를 먼저 읽어라.
 1. 고친다. 3.1 에 해당하는 변경이면 먼저 사용자 확인을 받는다.
 2. 게스트 수집기: `tests/run_guest.sh` 로 가짜 perf 에서 실행해 로그와 CSV 머리글을 본다(Intel · AMD 의 `/proc` 대용 폴더 각각). 이전 판과 비교할 때는 `git show <이전 커밋>:ops_metric_push.sh` 로 꺼내 `COLLECTOR=<그 파일>` 로 같은 조건에서 실행한다.
 3. 호스트 수집기: `tests/stub_esxi_bin` 을 PATH 앞에 두고 `python3 vmkperf_ops_push/vmkperf_ops_push.py check --mode file` 을 실행한다.
-4. 전송: `tests/fake_ops.py` 흉내 서버로 객체 조회, 생성, 지표 수신을 본다.
+4. 전송: `tests/fake_ops.py` 흉내 서버로 객체 조회, 생성, 지표 수신을 본다. 구성값 기록 스크립트는 `bash tests/run_guest_config.sh` 로 확인한다.
 5. `python3 tools/gen_metrics.py --check` 로 `METRICS.md` 가 코드와 같은지 본다.
 6. 커밋 전에 실제 주소, 계정, 암호문, 키 문자열이 없는지 검색한다.
 

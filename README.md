@@ -82,6 +82,7 @@ VM 이 아닌 BM 호스트에서도 같은 수집기를 실행한다. `--target 
 - 객체 조회가 실패하거나 Operations 가 객체 생성을 거부하면 수집기는 객체를 만들지 않고 종료한다. 계정에 객체를 만들 권한이 있어야 한다.
 - 만든 객체에는 이 수집기가 보낸 지표만 있다. 다른 어댑터가 수집하는 항목은 없다.
 - `--target vm`(기본값)과 `--target any` 는 객체를 만들지 않는다. VM 이름을 잘못 적었을 때 새 객체가 생기지 않게 하기 위해서다.
+- BM 호스트의 OS 구성값(THP, hugepages 등)은 `collection_etc/guest_config_push.sh --target bm` 이 같은 객체의 속성으로 기록한다(`SCRIPTS.md`).
 
 ```
 nohup bash ops_metric_push.sh --target bm >& /tmp/ops_push.log &                 # csh, tcsh
@@ -148,6 +149,7 @@ bash ops_metric_push.sh --stop
 | 2026-11-12 | `vmkperf_ops_push.py` | 1.4 | AMD Zen 3, Zen 4, Zen 5 이벤트 파일(`milan.json`, `genoa.json`, `turin.json`)의 맨 끝에 `dc_fill_l3` 추가. `metrics_amd.json` 의 맨 끝에 `L1D_Fill_L3`, `L1D_Fill_L3_PTI`, `L1D_Fill_L3_Pct` 추가. `--events` 없이 시작하는 이벤트는 1.3 과 같음. Zen 1, Zen 2, Intel 의 이벤트 파일은 그대로임 |
 | 2026-11-12 | `ops_metric_push.sh` | 4.8 | 수집 지표를 설계 판(4.1)의 26개로 되돌림. 지표 표가 4.1 과 같음. 4.2 부터 4.7 까지 추가한 `Guest Perf AMD` 지표 19개와 `Guest Perf Intel` 지표 10개, 캐시와 TLB 지표 14개에 있던 AMD 제외 조건, 이벤트 코드 표의 줄을 모두 뺌. 모든 CPU 에서 perf 이벤트 이름 12개를 요청함(AMD 게스트 포함). CSV 의 지표 열은 26개. 구간 로그 요약 줄에서 `L2_DTLB_Miss_PTI` 를 뺌. perf 상주 방식, multiplexing 표시, `--perf-fit`, 설정 파일, `--target bm`, CPU class 표시는 4.7 과 같음 |
 | 2026-11-12 | `vmkperf_ops_push.py` | 1.5 | 수집 지표를 설계 판(1.0)의 15개로 되돌림. 지표 파일은 `events/metrics.json` 하나이고 `metrics_amd.json`, `metrics_amd_zen2.json` 을 뺌. AMD 이벤트 파일 5개에는 설계 판의 이벤트 키 가운데 AMD core 카운터에 있는 `cycles`, `instr` 만 둠. AMD 호스트에서는 `Cycles`, `Instructions`, `IPC` 만 값이 있고 나머지 12개는 비어 있음. `probe`, `worldprobe` 는 다른 이벤트가 없는 이벤트 파일에서 `cycles`, `instr` 을 사용. Intel 호스트의 동작과 설정 파일 방식은 1.4 와 같음 |
+| 2026-11-18 | `collection_etc/guest_config_push.sh` | 1.1 | 구성값 기록 스크립트(수집기는 아님)에 BM 호스트 대상 `--target bm`, `--target auto` 추가. 수집기의 `--target bm` 과 같은 객체에 기록. 접속 설정을 `ops_local.conf` 에서 읽음. 수집기 3종과 수집 지표는 변경 없음. 상세는 `SCRIPTS.md` |
 
 Git 에 올리기 전의 판은 이 저장소에 없다. 게스트 수집기 4.2 에서 perf 를 한 번만 실행하는 방식과 multiplexing 표시, `--perf-fit` 을 넣었다. 4.2 와 4.3, 호스트 수집기 1.1 과 1.2 에서 넣은 AMD 전용 지표는 4.8 과 1.5 에서 뺐다. 설계 판인 게스트 수집기 4.1 과 호스트 수집기 1.0 도 이 저장소에 없다.
 

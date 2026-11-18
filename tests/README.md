@@ -9,6 +9,7 @@
 | `mkproc.sh` | 원하는 CPUID family, model 의 `/proc` 대용 폴더를 새로 만든다. `./mkproc.sh AuthenticAMD 25 17 /tmp/opstest/proc_25-17` 처럼 쓴다. AMD 세대별(Zen 1~5) 시험에 사용한다 |
 | `run_guest.sh` | 게스트 수집기를 가짜 perf 로 N초 실행하고 중지한 뒤 로그와 CSV 를 보여 준다. 출력 폴더는 `/tmp/opstest/<이름>_<시각>`. 시험할 수집기 파일은 환경 변수 `COLLECTOR` 로 지정한다(기본값 `../ops_metric_push.sh`) |
 | `fake_ops.py` | VCF Operations suite-api 흉내 서버(토큰, 객체 조회와 생성, stats 와 properties 수신). `python3 fake_ops.py <기록 폴더> <포트>`. 기록 폴더에 `preset.json` 을 두면 그 안의 객체가 미리 있는 것으로 동작하고, 없으면 VirtualMachine `testvm` 하나만 있다. 빈 파일 `fail_create` 를 두면 객체 생성을 거부(403)하고, `fail_lookup` 을 두면 객체 조회가 실패(500)한다. 받은 요청은 `requests.jsonl`, 지표는 `stats.jsonl`, 전송 경로는 `stats_paths.jsonl` 과 `props_paths.jsonl`, 만든 객체는 `created.jsonl` 에 기록한다 |
+| `run_guest_config.sh` | `collection_etc/guest_config_push.sh` 를 `fake_ops.py` 에 연결해 실행하고 흉내 서버가 받은 내용을 확인한다: VM 대상, BM 대상(객체 사용과 생성), `--target auto`, `--check`, `--dry-run`, 설정 파일, 실패 경우, jq 경로. `bash run_guest_config.sh [포트]`. 확인 항목마다 한 줄을 출력하고 실패가 있으면 종료 코드가 1 이다. `/sys`, `/proc` 대신 읽을 폴더는 환경 변수 `GCP_ROOT` 로 지정한다(시험 전용) |
 | `stub_esxi_bin/vmkperf`, `esxcli` | ESXi 의 vmkperf, esxcli 흉내. `STUB_VENDOR`, `STUB_GP`, `STUB_FAMILY`, `STUB_MODEL` 로 호스트 종류를 정한다 |
 
 예:

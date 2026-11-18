@@ -23,7 +23,7 @@
 | `cpu_affinity/` | `collect_vcpu_placement_v1_0.sh` | 1.0 | ESXi 셸 | vCPU 가 실행되는 pCPU 와 NUMA locality 기록(읽기 전용) |
 | `cpu_affinity/` | `taskset_pin_primesim.sh` | 판 표기 없음 | 게스트 OS | PrimeSim 프로세스를 잡 단위 또는 스레드 단위로 vCPU 에 고정 |
 | `collection_etc/` | `config_snapshot_v1_1.ps1` | 1.1 | PowerCLI | 테스트 전 구성 스냅샷(호스트 고급 설정, VM 스펙, ExtraConfig, 게스트 값, CAT 값) |
-| `collection_etc/` | `guest_config_push.sh` | 1.0 | 게스트 OS | 게스트 OS 구성값을 Operations 의 VM 속성으로 기록 |
+| `collection_etc/` | `guest_config_push.sh` | 1.1 | 게스트 OS, BM 호스트 | OS 구성값을 Operations 의 VM 속성 또는 BM 호스트 객체의 속성으로 기록 |
 | `collection_etc/` | `Export-EsxiSettingsReference_v1_0.ps1` | 1.0 | PowerCLI | ESXi Advanced Settings 와 Kernel Settings 전체를 md, csv 로 내보냄 |
 | `collection_etc/` | `primesim_phase_syslog_v4.4.sh` | 4.4 | 게스트 OS | PrimeSim output 로그에서 단계별 elapsed 를 뽑아 syslog 전송 또는 CSV 저장 |
 | `collection_etc/` | `prs_maps_monitor_v1.03.sh` | 1.03 | 게스트 OS | 프로세스의 maps, smaps, numa_maps 주기 수집 |
@@ -174,17 +174,50 @@ PowerShell 만 있으면 된다. vCenter 연결과 PowerCLI 가 필요 없다.
 
 ### guest_config_push.sh
 
+OS 구성값 10개(THP enabled, THP defrag, khugepaged scan_sleep_millisecs, khugepaged pages_to_scan, kernel.numa_balancing, hugepages 2MB 와 1GB nr_hugepages, default_hugepagesz, kernel, Collected At)를 읽어 Operations 객체의 속성 `Custom Configuration|Guest|*` 로 기록한다. 한 번 실행하고 끝난다. 테스트 전과 설정을 변경한 뒤에 실행한다.
+
 - 실행: `bash guest_config_push.sh [옵션]`. 필요한 명령: curl, openssl, 그리고 python3 또는 jq.
+- 판: 1.1 (2026-11-18). 파일 이름에 판 번호를 넣지 않는다. `--version` 이 판을 출력한다.
+- 접속 설정(1.1): 수집기와 같은 `ops_local.conf`(`OPS_HOST`, `OPS_USER`, `OPS_ENC_KEY`, `OPS_PASS_ENC`)를 읽는다. 스크립트가 있는 폴더에서 먼저 찾고, 없으면 한 폴더 위에서 찾는다. 다른 위치는 `--config` 나 환경 변수 `OPS_PUSH_CONFIG` 로 지정한다. 값의 우선순위는 옵션, 환경 변수(`OPS_HOST`, `OPS_USER`, `OPS_PASSWORD`), 설정 파일, 스크립트 안의 값(1.1 전에 값을 직접 적어 둔 사본용. 저장소에서는 비어 있음) 순서다.
+
+기록할 객체(`--target`, 1.1):
+
+| 값 | 대상 | 동작 |
+| :-- | :-- | :-- |
+| `vm` (기본값) | VM 의 게스트 OS | 이름이 같은 VMWARE VirtualMachine 객체에 기록한다. 객체가 없으면 오류로 끝나고 객체를 만들지 않는다 |
+| `bm` | BM 호스트 | 이름이 같은 객체를 모든 adapter kind 에서 찾는다. 있으면 그 객체에 기록한다. 없으면 객체를 만든 뒤 기록한다(adapter kind `BareMetalPush`, object type `BareMetalServer`). `ops_metric_push.sh --target bm` 과 같은 객체를 쓰므로 지표와 구성값이 한 객체에 모인다 |
+| `auto` | VM 과 BM 호스트가 섞인 경우 | 이 장비가 가상 머신이면 `vm`, 아니면 `bm` 으로 동작한다. DMI 의 제조사, 제품 이름(VMware 등)과 CPU 플래그 `hypervisor` 로 구분한다. 같은 명령 한 줄을 양쪽에서 쓸 때 지정한다 |
+
+- `--target bm` 에서 이름이 같은 객체가 여럿이면 다른 어댑터가 수집하는 객체를 먼저 쓴다. 객체 조회가 실패하거나 Operations 가 객체 생성을 거부하면 객체를 만들지 않고 오류로 끝난다. 계정에 객체를 만들 권한이 있어야 한다.
+- 객체 이름은 `--name` 으로 지정한다. 생략하면 `hostname -s` 값이다.
+- 마지막 출력 줄이 결과다: `[OPS] <이름> Guest properties 10 recorded <시각> [<객체 설명>]` 또는 `[ERROR] ...`.
+- BM 호스트에서도 속성 이름은 `Custom Configuration|Guest|*` 그대로다(VM 과 같은 이름으로 비교하기 위해서다).
 
 | 옵션 | 기본값 | 내용 |
 | :-- | :-- | :-- |
+| `--target vm\|bm\|auto` | `vm` | 기록할 객체(위 표) |
+| `--name NAME`, `--vm NAME` | `hostname -s` | Operations 의 객체 이름 |
 | `--dry-run` | 꺼짐 | 값만 출력, 전송 없음 |
-| `--check` | 꺼짐 | 토큰, 인증, VM 객체 조회 점검 |
-| `--vm NAME` | 게스트 hostname | Operations 의 VM 객체 이름 |
+| `--check` | 꺼짐 | 토큰, 인증, 객체 조회 점검. 아무것도 만들지 않는다 |
 | `--out FILE` | 없음 | key,value CSV 도 저장 |
-| `--ops-host H`, `--ops-user U` | 스크립트 설정 값 | Operations 주소, 계정 |
+| `--config FILE` | 스크립트 폴더 또는 한 폴더 위의 `ops_local.conf` | 접속 설정 파일 |
+| `--ops-host H`, `--ops-user U` | 설정 파일의 값 | Operations 주소, 계정 |
 | `--pass-file F` | 없음 | 비밀번호 파일 |
-| `--insecure`, `--verify-tls`, `--cacert F` | 스크립트 설정 값 | TLS 인증서 확인 방식 |
+| `--adapter-kind K`, `--resource-kind K` | `BareMetalPush`, `BareMetalServer` | `--target bm` 이 만드는 객체의 종류 |
+| `--insecure`, `--verify-tls`, `--cacert F` | 인증서 확인 안 함 | TLS 인증서 확인 방식 |
+| `--version` | | 판 출력 |
+
+```
+bash guest_config_push.sh                     # VM
+bash guest_config_push.sh --target bm         # BM 호스트 (객체가 없으면 만든다)
+bash guest_config_push.sh --target auto       # VM 과 BM 호스트에 같은 명령
+bash guest_config_push.sh --target bm --check # 접속과 객체 조회만 확인
+```
+
+| 날짜 | 판 | 변경 내용 |
+| :-- | :-- | :-- |
+| 2026-10-19 | 1.0 | 첫 판. VM 객체에 기록 |
+| 2026-11-18 | 1.1 | BM 호스트 대상 `--target bm`, `--target auto` 추가. 객체가 없으면 만들고 기록. `--name`, `--config`, `--adapter-kind`, `--resource-kind`, `--version` 추가. 접속 설정을 `ops_local.conf` 에서 읽음. `OPS_HOST` 에 `http(s)://` 주소 허용. `--target vm`(기본값)의 동작과 기록하는 10개 항목은 1.0 과 같음. 시험 `tests/run_guest_config.sh` |
 
 ### Export-EsxiSettingsReference_v1_0.ps1
 
