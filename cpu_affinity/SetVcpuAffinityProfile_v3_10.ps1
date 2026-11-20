@@ -1,5 +1,24 @@
 ﻿function Set-VcpuAffinityProfile {
     # ==========================================================================
+    # v3.10 (2026-11-20)
+    #
+    #   v3.9 -> v3.10 : rev12/rev11 의 SVM 배정이 VM 의 가상 소켓 수(vNUMA 노드 수)를 반영
+    #     v3.9 까지는 SVM vCPU 를 호스트 NUMA 노드 수로 나눠 노드 하나씩에 배정했다 (VM 의 가상 소켓 수는 보지 않음).
+    #     그래서 가상 소켓 1개(vNUMA 1노드)인 SVM 도 vCPU 가 호스트 노드별로 나뉘어 배정됐다.
+    #       예) 2소켓 8코어 HT on, rev11, SVM 2 vCPU 1소켓 : vcpu0 = 31,29,27,25 / vcpu1 = 15,13,11,9
+    #     v3.10 : SVM 의 가상 소켓 수 VS 를 VM 에서 읽는다 (PVM 과 같은 방법. 소켓당 코어 미판독 시 1).
+    #       VS >= 호스트 노드 수 : 변경 없음. vCPU 를 노드 수만큼 묶어 마지막 노드부터 배정 (시트 §2, §3 의 값.
+    #                              그 SVM 은 4 vCPU, 소켓당 코어 2, 가상 소켓 2개였다).
+    #       VS <  호스트 노드 수 : 호스트 노드를 VS 묶음으로 나누고(뒤 노드부터), 가상 소켓 j 의 vCPU 는
+    #                              묶음 j 에 든 노드들의 SVM 실행 pCPU 를 합친 같은 값을 받는다.
+    #         VS = 1 이면 모든 vCPU 가 전 노드의 SVM 실행 pCPU 를 합친 같은 값.
+    #         예) 위 조건 : vcpu0 = vcpu1 = 31,29,27,25,15,13,11,9
+    #     결과 리포트 : 값이 여러 노드에 걸친 키는 걸친 노드의 줄마다 표시 (v3.9 는 첫 pCPU 의 노드 줄에만 표시).
+    #                   값에 범위 표기(예: 8-15)가 있으면 범위 안의 pCPU 로 노드를 판정.
+    #     안내 문구 : SVM 의 가상 소켓 수와 그 근거(vCPU 수, 소켓당 코어 판독값 또는 미판독)를 표시.
+    #     적용 전 확인 표 : 값이 길어도 잘리지 않게 줄을 바꿔 표시 (Format-Table -Wrap).
+    #     PVM, vm4d, clear, 예약 코어, HT, SNC, SvmScope host : 변경 없음. VmDeployPlan v1.1 과 같은 규칙.
+    #
     # v3.9  (2026-10-27)
     #
     #   v3.7 -> v3.9 : Multi VM rev12/rev11 PVM 순차 고정, vm4d 만 노드 라운드로빈,
@@ -113,11 +132,16 @@
     #           - 제외량은 소켓당 4 물리 코어(HT 스레드까지 세면 8개)로 고정.
     #             소켓 안에 노드가 여럿이면 그 4코어를 노드에 균등 분배한다
     #             (SNC-2, 소켓당 8코어면 노드당 2코어 - 제외 총량은 그대로 4코어/소켓).
-    #           - SVM vCPU 는 노드 수만큼 균등하게 묶어 같은 affinity 를 준다.
+    #           - SVM 의 가상 소켓 수(vNUMA 노드 수)가 호스트 노드 수 이상이면
+    #             SVM vCPU 를 노드 수만큼 균등하게 묶어 같은 affinity 를 준다.
     #             묶음 크기 = SVM vCPU 수 / 노드 수.
     #               2소켓(노드2) SVM 8 vCPU -> 4개씩, SVM 4 vCPU -> 2개씩
     #               SNC-2 2소켓(노드4) SVM 4 vCPU -> 1개씩
     #           - 묶음은 마지막 노드부터 역순으로 배정한다(뒤 소켓 우선).
+    #           - SVM 의 가상 소켓 수가 호스트 노드 수보다 적으면(v3.10) vCPU 를 호스트 노드별로 나누지 않는다.
+    #             가상 소켓 j 의 vCPU 는 호스트 노드 묶음 j(뒤 노드부터)의 pCPU 를 합친 같은 값을 받는다.
+    #               가상 소켓 1개 : 모든 vCPU 가 전 노드의 pCPU 를 합친 같은 값
+    #               SNC-2 2소켓(노드4) 에 가상 소켓 2개 : 소켓 0 -> 노드 3,2 / 소켓 1 -> 노드 1,0
     #     rev12 와 rev11 의 차이는 SVM 이 코어의 스레드를 다 쓰느냐(rev12),
     #     HT 짝꿍 스레드만 쓰느냐(rev11) 뿐이다.
     #
@@ -656,7 +680,9 @@
             }
         }
         else {
-            # rev12 / rev11 - 노드마다 예약 코어를 빼고, vCPU 를 노드 수만큼 묶어 배정
+            # rev12 / rev11 - 노드마다 예약 코어를 빼고, SVM 의 가상 소켓 수에 따라 배정 (v3.10)
+            #   가상 소켓 수 >= 호스트 노드 수 : vCPU 를 노드 수만큼 묶어 마지막 노드부터 배정
+            #   가상 소켓 수 <  호스트 노드 수 : 가상 소켓마다 호스트 노드 묶음의 pCPU 를 합친 같은 값
             $ThreadMode = $Spec.SvmThreads
             if ($ThreadMode -eq "sibling" -and -not $HTEnabled) {
                 Write-Host "▶ HT Off - '$ProfileKey' 의 SVM 은 HT 짝꿍 스레드만 쓰는 정책이나 짝꿍이 없습니다. 코어의 유일한 스레드를 씁니다(rev12 와 동일 결과)." -ForegroundColor Yellow
@@ -673,27 +699,71 @@
                 $UsableCoreSets += ,@($Cores[$ReservePerNode..($Cores.Count - 1)])
             }
 
-            $VcpusPerNode = [int][math]::Ceiling($SecNumCpu / $NumNodes)
-            if ($VcpusPerNode -lt 1) { $VcpusPerNode = 1 }
-            if ($SecNumCpu -lt $NumNodes) {
-                Write-Host "▶ [참고] SVM vCPU 수($SecNumCpu) < NUMA 노드 수($NumNodes) - 뒤쪽 $SecNumCpu 개 노드만 사용합니다." -ForegroundColor DarkGray
-            } else {
-                Write-Host "▶ SVM vCPU $SecNumCpu 개를 노드 $NumNodes 개에 $VcpusPerNode 개씩 묶어 배정합니다 (마지막 노드부터 역순)." -ForegroundColor DarkGray
+            # v3.10 : SVM 의 가상 소켓 수(vNUMA 노드 수)를 VM 에서 읽어 반영한다
+            $SvmVs    = & $GetVmVs $SecVM "SVM"
+            $SvmVsNum = [int]$SvmVs.VS
+            $SvmVsSrc = if ([int]$SvmVs.Cps -gt 0) { "vCPU $SecNumCpu, 소켓당 코어 $($SvmVs.Cps)" } else { "소켓당 코어 미판독, 자동값" }
+            if ($SvmVsNum -lt $NumNodes) {
+                # 가상 소켓 수 < 호스트 노드 수 : vCPU 를 호스트 노드별로 나누지 않는다.
+                # 호스트 노드를 가상 소켓 수만큼 묶고(뒤 노드부터), 가상 소켓 j 의 vCPU 는 묶음 j 의 pCPU 를 합친 같은 값을 받는다.
+                $GroupSize = if ([int]$SvmVs.Cps -gt 0) { [int]$SvmVs.Cps } else { [int][math]::Ceiling($SecNumCpu / $SvmVsNum) }
+                if ($GroupSize -lt 1) { $GroupSize = 1 }
+                $GroupValues = @()
+                $GroupNodes  = @()
+                for ($g = 0; $g -lt $SvmVsNum; $g++) {
+                    $NodeHi = [int]($NumNodes - [math]::Floor(($g * $NumNodes) / $SvmVsNum))
+                    $NodeLo = [int]($NumNodes - [math]::Floor((($g + 1) * $NumNodes) / $SvmVsNum))
+                    $Merged = @()
+                    $Names  = @()
+                    for ($nd = $NodeHi - 1; $nd -ge $NodeLo; $nd--) {
+                        $Merged += @(& $CoresToPcpuList $UsableCoreSets[$nd] $ThreadMode $Spec.SvmOrder)
+                        $Names  += "$nd"
+                    }
+                    if ($Merged.Count -eq 0) {
+                        Write-Error "SVM 가상 소켓 $g 에 배정할 pCPU 가 없습니다. 중단합니다."
+                        return
+                    }
+                    $GroupValues += ,($Merged -join ",")
+                    $GroupNodes  += ,($Names -join ",")
+                }
+                if ($SvmVsNum -eq 1) {
+                    Write-Host "▶ SVM 가상 소켓 1개 ($SvmVsSrc) - vCPU $SecNumCpu 개를 호스트 노드별로 나누지 않습니다. 전 노드($($GroupNodes[0]))의 SVM 실행 pCPU 를 합친 같은 값을 줍니다." -ForegroundColor DarkGray
+                } else {
+                    Write-Host "▶ SVM 가상 소켓 $SvmVsNum 개 ($SvmVsSrc) < 호스트 NUMA 노드 $NumNodes 개 - 가상 소켓마다 호스트 노드 묶음($($GroupNodes -join ' / '))의 pCPU 를 합친 값을 줍니다 (소켓당 vCPU $GroupSize 개, 뒤 노드부터)." -ForegroundColor DarkGray
+                }
+                for ($v = 0; $v -lt $SecNumCpu; $v++) {
+                    $g = [int][math]::Floor($v / $GroupSize)
+                    if ($g -gt ($SvmVsNum - 1)) { $g = $SvmVsNum - 1 }
+                    $PlannedSettings += [PSCustomObject]@{
+                        VMName = $SecVM.Name; VMObject = $SecVM
+                        Key    = "sched.vcpu$v.affinity"; Value = $GroupValues[$g]
+                    }
+                }
             }
-
-            for ($v = 0; $v -lt $SecNumCpu; $v++) {
-                $TargetNode = [int](($NumNodes - 1) - [math]::Floor($v / $VcpusPerNode))
-                if ($TargetNode -lt 0) { $TargetNode = 0 }
-
-                $Pcpus = @(& $CoresToPcpuList $UsableCoreSets[$TargetNode] $ThreadMode $Spec.SvmOrder)
-                if ($Pcpus.Count -eq 0) {
-                    Write-Error "NUMA 노드 $TargetNode 에서 선택 가능한 pCPU 가 없습니다. 중단합니다."
-                    return
+            else {
+                # 가상 소켓 수 >= 호스트 노드 수 : v3.9 와 같다 (노드 수만큼 묶어 마지막 노드부터)
+                $VcpusPerNode = [int][math]::Ceiling($SecNumCpu / $NumNodes)
+                if ($VcpusPerNode -lt 1) { $VcpusPerNode = 1 }
+                if ($SecNumCpu -lt $NumNodes) {
+                    Write-Host "▶ [참고] SVM vCPU 수($SecNumCpu) < NUMA 노드 수($NumNodes) - 뒤쪽 $SecNumCpu 개 노드만 사용합니다." -ForegroundColor DarkGray
+                } else {
+                    Write-Host "▶ SVM 가상 소켓 $SvmVsNum 개 ($SvmVsSrc) - vCPU $SecNumCpu 개를 노드 $NumNodes 개에 $VcpusPerNode 개씩 묶어 배정합니다 (마지막 노드부터 역순)." -ForegroundColor DarkGray
                 }
 
-                $PlannedSettings += [PSCustomObject]@{
-                    VMName = $SecVM.Name; VMObject = $SecVM
-                    Key    = "sched.vcpu$v.affinity"; Value = ($Pcpus -join ",")
+                for ($v = 0; $v -lt $SecNumCpu; $v++) {
+                    $TargetNode = [int](($NumNodes - 1) - [math]::Floor($v / $VcpusPerNode))
+                    if ($TargetNode -lt 0) { $TargetNode = 0 }
+
+                    $Pcpus = @(& $CoresToPcpuList $UsableCoreSets[$TargetNode] $ThreadMode $Spec.SvmOrder)
+                    if ($Pcpus.Count -eq 0) {
+                        Write-Error "NUMA 노드 $TargetNode 에서 선택 가능한 pCPU 가 없습니다. 중단합니다."
+                        return
+                    }
+
+                    $PlannedSettings += [PSCustomObject]@{
+                        VMName = $SecVM.Name; VMObject = $SecVM
+                        Key    = "sched.vcpu$v.affinity"; Value = ($Pcpus -join ",")
+                    }
                 }
             }
         }
@@ -794,14 +864,14 @@
     # ==============================================================================
     if ($RemoveTargets.Count -gt 0) {
         Write-Host "`n[사전 제거 대상 - 기존 affinity 키]" -ForegroundColor Magenta
-        $RemoveTargets | Select-Object VMName, Key, Value | Format-Table -AutoSize
+        $RemoveTargets | Select-Object VMName, Key, Value | Format-Table -Wrap -AutoSize
     } else {
         Write-Host "`n[사전 제거 대상 없음 - 기존 affinity 키 미존재]" -ForegroundColor Magenta
     }
 
     if ($PlannedSettings.Count -gt 0) {
         Write-Host "[적용 예정 프로파일: $ProfileKey - affinity 키]" -ForegroundColor Green
-        $PlannedSettings | Select-Object VMName, Key, Value | Format-Table -AutoSize
+        $PlannedSettings | Select-Object VMName, Key, Value | Format-Table -Wrap -AutoSize
     } else {
         Write-Host "[적용 예정 프로파일: $ProfileKey - 신규 affinity 설정 없음]" -ForegroundColor Green
     }
@@ -874,9 +944,27 @@
         param($Setting, $NodeIdx)
         if ($Setting.Name -like "sched.node*") { return ([int]($Setting.Value) -eq $NodeIdx) }
         if ([string]::IsNullOrWhiteSpace($Setting.Value)) { return $false }
-        $FirstPcpu = [int](($Setting.Value -split ',')[0].Trim())
-        $Core = [int][math]::Floor($FirstPcpu / $ThreadsPerCore)
-        return ($CoreToNode.ContainsKey($Core) -and $CoreToNode[$Core] -eq $NodeIdx)
+        # v3.10 : 값의 pCPU 가운데 하나라도 그 노드에 있으면 그 노드 줄에 표시한다 (여러 노드에 걸친 값은 줄마다 표시)
+        # 값의 항목은 pCPU 번호 하나(예: 9) 또는 범위(예: 8-15). 그 밖의 표기는 판정에서 뺀다.
+        foreach ($Tok in ($Setting.Value -split ',')) {
+            $TokText = "$Tok".Trim()
+            $PcLo = -1
+            $PcHi = -1
+            if ($TokText -match '^(\d+)-(\d+)$') {
+                $PcLo = [int]$Matches[1]
+                $PcHi = [int]$Matches[2]
+            }
+            elseif ($TokText -match '^\d+$') {
+                $PcLo = [int]$TokText
+                $PcHi = $PcLo
+            }
+            if ($PcLo -lt 0) { continue }
+            for ($Pc = $PcLo; $Pc -le $PcHi; $Pc++) {
+                $Core = [int][math]::Floor($Pc / $ThreadsPerCore)
+                if ($CoreToNode.ContainsKey($Core) -and $CoreToNode[$Core] -eq $NodeIdx) { return $true }
+            }
+        }
+        return $false
     }
 
     $FinalReport = @()

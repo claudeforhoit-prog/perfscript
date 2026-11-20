@@ -1,5 +1,13 @@
 ﻿# ==============================================================================
-# VmDeployPlan_v1_0.ps1   v1.0 (2026-10-27)
+# VmDeployPlan_v1_1.ps1   v1.1 (2026-11-20)
+#
+#   v1.0 -> v1.1 : rev12, rev11 의 SVM 배정이 SVM 의 가상 소켓 수(vNUMA 노드 수)를 반영 (SetVcpuAffinityProfile v3.10 과 같은 규칙)
+#     v1.0 은 SVM vCPU 를 호스트 NUMA 노드 수로 나눠 노드 하나씩에 배정했다 (가상 소켓 수는 보지 않음).
+#     v1.1 : 가상 소켓 수가 호스트 노드 수보다 적으면 vCPU 를 호스트 노드별로 나누지 않는다.
+#            가상 소켓 1개(자동 규칙의 기본)이면 모든 vCPU 가 전 노드의 SVM 실행 pCPU 를 합친 같은 값을 받는다.
+#            시트 2절, 3절의 값(SVM 4 vCPU 를 2개씩 노드별로 배정)은 -SvmVSockets 2 를 주면 나온다 (그 SVM 은 가상 소켓 2개였다).
+#            3절은 예약 코어가 소켓당 2개인 조건이라 -EsxiReserveCores 2 도 함께 준다.
+#     PVM, vm4d, clear, 그 밖의 표 항목 : 변경 없음.
 #
 #   VM 배포 계획서 생성. 실제 호스트나 vCenter 없이, 호스트 사양과 VM 의 vCPU, 메모리를 입력하면
 #   VM 배포 팀에 전달할 VM 스펙, 고급 설정(advanced config), CPU affinity 값을 표로 만든다.
@@ -17,7 +25,10 @@
 #       PVM 2대   : Two VM. PVM1 은 소켓0, PVM2 는 소켓1 의 앞 코어부터 (PVM 하나가 소켓 하나)
 #       PVM 3대+  : Multi VM. 호스트 코어 0 부터 PVM 번호 순서로 순차. PVM1 pCPU 0-3, PVM2 4-7, PVM3 8-11 ...
 #     SVM float (rev12, rev11)
-#       NUMA 노드마다 앞쪽 예약 코어(기본 소켓당 4)를 빼고 남은 코어 위를 float. SVM vCPU 를 노드 수로 나눠 뒤 노드부터 배정
+#       NUMA 노드마다 앞쪽 예약 코어(기본 소켓당 4)를 빼고 남은 코어 위를 float
+#       SVM 가상 소켓 수 >= 호스트 노드 수 : SVM vCPU 를 노드 수로 나눠 뒤 노드부터 배정
+#       SVM 가상 소켓 수 <  호스트 노드 수 : 호스트 노드를 가상 소켓 수만큼 묶고(뒤 노드부터), 가상 소켓 j 의 vCPU 는 묶음 j 의 pCPU 를 합친 같은 값
+#                                          (가상 소켓 1개 = 모든 vCPU 가 전 노드의 pCPU 를 합친 같은 값)
 #       rev12 는 코어의 전체 스레드, rev11 은 HT 짝 스레드만
 #     vm4d (node affinity, sched.nodeN.affinity)
 #       VM 의 vNUMA 노드 j 를 호스트 NUMA 노드에 1:1 로 묶는다. 키 수 = VM 의 vNUMA 노드 수(가상 소켓 수)
@@ -30,12 +41,13 @@
 #     PVM : ceil(vCPU / 호스트 NUMA 노드당 코어 수), 최대 호스트 노드 수. 2소켓 8코어 호스트에 16 vCPU = 2, 8 vCPU = 1, 2 vCPU = 1
 #           SNC 호스트는 SNC 노드 기준 (vSphere 의 vNUMA 자동 크기 산정과 같은 기준). SNC-2 2소켓 8코어에 16 vCPU = 4 소켓 x 4 코어
 #     SVM : 1. vm4d 는 호스트 노드 수 (전 노드에 1:1)
+#           rev12, rev11 에서 SVM vCPU 를 호스트 노드별로 나눠 배정하려면 -SvmVSockets 에 호스트 노드 수를 준다 (2소켓 호스트 = 2)
 #     -PvmVSockets / -SvmVSockets 로 덮어쓸 수 있다. vm4d 의 sched.nodeN 키 수는 이 값을 따른다
 #     단 vm4d 의 SVM 은 항상 호스트 전 노드 1:1 (적용 스크립트와 동일) 이므로 -SvmVSockets 를 무시한다
 #     numa.vcpu.maxPerVirtualNode = 소켓당 코어 수 (vNUMA 노드 하나 = 가상 소켓 하나)
 #
 #   [적용 스크립트와의 관계]
-#     값은 SetVcpuAffinityProfile v3.9 와 같은 규칙으로 계산한다 (v3.9 가 위 [배치 규칙]을 적용). 규칙을 바꾸면 두 스크립트를 같이 고친다.
+#     값은 SetVcpuAffinityProfile v3.10 과 같은 규칙으로 계산한다 (v3.10 이 위 [배치 규칙]을 적용). 규칙을 바꾸면 두 스크립트를 같이 고친다.
 #
 #   [함수]
 #     New-VmDeployPlan    계획서 생성 (화면 표 + csv)
@@ -59,7 +71,7 @@
 #     -SvmName <이름>             SVM 이름 (생략 시 PVM 다음 번호. PVM 1대면 ev02, 6대면 ev07)
 #     -NamePrefix <호스트>         자동 이름 앞에 붙일 호스트 이름 (예 esx01 -> esx01ev01)
 #
-#   [입력 - 정책]  생략하면 기본값, 주면 그 값으로 표가 바뀐다
+#   [입력 - 정책]  생략하면 기본값, 주면 그 값으로 표가 변경된다
 #     -Profile rev12 | rev11 | vm4d | clear
 #     -ShareRatio "10000:1" | "1:1" | normal   CPU, 메모리 shares PVM:SVM (기본 10000:1). normal = vSphere 자동값
 #     -Lpage1GB on|off            1GB page 키 5개 (기본 on)
@@ -71,7 +83,7 @@
 #     마지막에 VM 생성 뒤 실제 호스트에서 쓸 적용 명령(SetVmProfile, SetVcpuAffinityProfile)을 출력
 #
 #   사용 예
-#     . .\VmDeployPlan_v1_0.ps1
+#     . .\VmDeployPlan_v1_1.ps1
 #     Test-VmDeployPlan
 #     New-VmDeployPlan -Profile rev12 -HostSockets 2 -HostCoresPerSocket 8 -PvmVcpu 16 -SvmVcpu 4 -PvmMemoryGB 1540 -SvmMemoryGB 112 -OutDir C:\config
 #     New-VmDeployPlan -Profile rev12 -HostSockets 2 -HostCoresPerSocket 8 -PvmCount 6 -PvmVcpu 2 -PvmMemoryGB 200
@@ -231,14 +243,43 @@ function Get-VmPlanAffinity {
                 }
                 $UsableCoreSets += ,@($Cores[$ReservePerNode..($Cores.Count - 1)])
             }
-            $VcpusPerNode = [int][math]::Ceiling($SecNumCpu / $NumNodes)
-            if ($VcpusPerNode -lt 1) { $VcpusPerNode = 1 }
-            for ($v = 0; $v -lt $SecNumCpu; $v++) {
-                $TargetNode = [int](($NumNodes - 1) - [math]::Floor($v / $VcpusPerNode))
-                if ($TargetNode -lt 0) { $TargetNode = 0 }
-                $Pcpus = @(& $CoresToPcpuList $UsableCoreSets[$TargetNode] $ThreadMode $Spec.SvmOrder)
-                if ($Pcpus.Count -eq 0) { $Result.Error = "NUMA 노드 $TargetNode 에서 선택 가능한 pCPU 없음"; return $Result }
-                $Result.Settings += [PSCustomObject]@{ VMName = $SecVM.Name; Key = "sched.vcpu$v.affinity"; Value = ($Pcpus -join ",") }
+            # v1.1 : SVM 의 가상 소켓 수(vNUMA 노드 수)를 반영한다 (SetVcpuAffinityProfile v3.10 과 같은 계산)
+            $SvmVsNum = [int]$SecVM.VS
+            if ($SvmVsNum -lt 1) { $SvmVsNum = 1 }
+            if ($SvmVsNum -lt $NumNodes) {
+                # 가상 소켓 수 < 호스트 노드 수 : vCPU 를 호스트 노드별로 나누지 않는다.
+                # 호스트 노드를 가상 소켓 수만큼 묶고(뒤 노드부터), 가상 소켓 j 의 vCPU 는 묶음 j 의 pCPU 를 합친 같은 값을 받는다.
+                $GroupSize = [int][math]::Ceiling($SecNumCpu / $SvmVsNum)
+                if ($GroupSize -lt 1) { $GroupSize = 1 }
+                $GroupValues = @()
+                for ($g = 0; $g -lt $SvmVsNum; $g++) {
+                    $NodeHi = [int]($NumNodes - [math]::Floor(($g * $NumNodes) / $SvmVsNum))
+                    $NodeLo = [int]($NumNodes - [math]::Floor((($g + 1) * $NumNodes) / $SvmVsNum))
+                    $Merged = @()
+                    for ($nd = $NodeHi - 1; $nd -ge $NodeLo; $nd--) {
+                        $Merged += @(& $CoresToPcpuList $UsableCoreSets[$nd] $ThreadMode $Spec.SvmOrder)
+                    }
+                    if ($Merged.Count -eq 0) { $Result.Error = "SVM 가상 소켓 $g 에 배정할 pCPU 없음"; return $Result }
+                    $GroupValues += ,($Merged -join ",")
+                }
+                for ($v = 0; $v -lt $SecNumCpu; $v++) {
+                    $g = [int][math]::Floor($v / $GroupSize)
+                    if ($g -gt ($SvmVsNum - 1)) { $g = $SvmVsNum - 1 }
+                    $Result.Settings += [PSCustomObject]@{ VMName = $SecVM.Name; Key = "sched.vcpu$v.affinity"; Value = $GroupValues[$g] }
+                }
+                $Result.Notes += $(if ($SvmVsNum -eq 1) { "SVM 가상 소켓 1개: vCPU 를 호스트 노드별로 나누지 않고 전 노드의 SVM 실행 pCPU 를 합친 같은 값 (노드별로 나누려면 -SvmVSockets $NumNodes)" } else { "SVM 가상 소켓 $SvmVsNum 개 < 호스트 노드 $NumNodes 개: 가상 소켓마다 호스트 노드 묶음의 pCPU 를 합친 값" })
+            }
+            else {
+                # 가상 소켓 수 >= 호스트 노드 수 : v1.0 과 같다 (노드 수만큼 묶어 마지막 노드부터)
+                $VcpusPerNode = [int][math]::Ceiling($SecNumCpu / $NumNodes)
+                if ($VcpusPerNode -lt 1) { $VcpusPerNode = 1 }
+                for ($v = 0; $v -lt $SecNumCpu; $v++) {
+                    $TargetNode = [int](($NumNodes - 1) - [math]::Floor($v / $VcpusPerNode))
+                    if ($TargetNode -lt 0) { $TargetNode = 0 }
+                    $Pcpus = @(& $CoresToPcpuList $UsableCoreSets[$TargetNode] $ThreadMode $Spec.SvmOrder)
+                    if ($Pcpus.Count -eq 0) { $Result.Error = "NUMA 노드 $TargetNode 에서 선택 가능한 pCPU 없음"; return $Result }
+                    $Result.Settings += [PSCustomObject]@{ VMName = $SecVM.Name; Key = "sched.vcpu$v.affinity"; Value = ($Pcpus -join ",") }
+                }
             }
         }
     }
@@ -493,7 +534,7 @@ function New-VmDeployPlan {
             Write-Host "▶ SNC 호스트: VM 의 가상 소켓 수(vNUMA 노드 수)는 SNC 노드 기준 (vSphere 자동 크기 산정과 같음). 물리 소켓 기준으로 두려면 -PvmVSockets 지정" -ForegroundColor DarkGray
         }
         if ($NumPvm -ge 3 -and $Spec.PvmRule -ne "none") {
-            Write-Host "▶ 값은 SetVcpuAffinityProfile v3.9 와 같은 규칙으로 계산(Multi VM PVM 은 코어 0 부터 순차)" -ForegroundColor Yellow
+            Write-Host "▶ 값은 SetVcpuAffinityProfile v3.10 과 같은 규칙으로 계산(Multi VM PVM 은 코어 0 부터 순차)" -ForegroundColor Yellow
         }
         $NameHint = ""
         if ($PriVMs.Count -gt 0) { $NameHint += " -pvms " + (($PriVMs | ForEach-Object { $_.Name }) -join ",") }
@@ -526,8 +567,10 @@ function Test-VmDeployPlan {
            Expect = @{ "ev01|sched.vcpu0.affinity" = "0,1"; "ev01|sched.vcpu15.affinity" = "30,31"; "ev01|cores per socket / sockets" = "8 / 2"; "ev01|vNUMA nodes" = "2"; "ev01|vpmc.enable" = "(없음)"; "ev01|structure / profile" = "PVM 단독 / rev12" } },
         @{ Name = "C1 PVM only 16 / vm4d";           Args = $H + @{ Profile = "vm4d"; PvmVcpu = @(16) }
            Expect = @{ "ev01|sched.node0.affinity" = "0"; "ev01|sched.node1.affinity" = "1"; "ev01|numa.vcpu.maxPerVirtualNode" = "8" } },
-        @{ Name = "C2 Dual VM 16+4 / rev12";         Args = $H + @{ Profile = "rev12"; PvmVcpu = @(16); SvmVcpu = 4 }
-           Expect = @{ "ev02|sched.vcpu0.affinity" = "31,29,27,25,30,28,26,24"; "ev02|sched.vcpu1.affinity" = "31,29,27,25,30,28,26,24"; "ev02|sched.vcpu2.affinity" = "15,13,11,9,14,12,10,8"; "ev02|sched.vcpu3.affinity" = "15,13,11,9,14,12,10,8"; "ev02|cores per socket / sockets" = "4 / 1"; "ev01|structure / profile" = "Dual VM / rev12" } },
+        @{ Name = "C2 Dual VM 16+4 / rev12 (SVM 가상 소켓 1개 = 합친 값)"; Args = $H + @{ Profile = "rev12"; PvmVcpu = @(16); SvmVcpu = 4 }
+           Expect = @{ "ev02|sched.vcpu0.affinity" = "31,29,27,25,30,28,26,24,15,13,11,9,14,12,10,8"; "ev02|sched.vcpu1.affinity" = "31,29,27,25,30,28,26,24,15,13,11,9,14,12,10,8"; "ev02|sched.vcpu2.affinity" = "31,29,27,25,30,28,26,24,15,13,11,9,14,12,10,8"; "ev02|sched.vcpu3.affinity" = "31,29,27,25,30,28,26,24,15,13,11,9,14,12,10,8"; "ev02|cores per socket / sockets" = "4 / 1"; "ev01|structure / profile" = "Dual VM / rev12" } },
+        @{ Name = "C2 Dual VM 16+4 / rev12 (SvmVSockets 2 = 시트 2절의 값)"; Args = $H + @{ Profile = "rev12"; PvmVcpu = @(16); SvmVcpu = 4; SvmVSockets = 2 }
+           Expect = @{ "ev02|sched.vcpu0.affinity" = "31,29,27,25,30,28,26,24"; "ev02|sched.vcpu1.affinity" = "31,29,27,25,30,28,26,24"; "ev02|sched.vcpu2.affinity" = "15,13,11,9,14,12,10,8"; "ev02|sched.vcpu3.affinity" = "15,13,11,9,14,12,10,8"; "ev02|cores per socket / sockets" = "2 / 2"; "ev02|numa.vcpu.maxPerVirtualNode" = "2" } },
         @{ Name = "C2 Dual VM 16+4 / vm4d (SvmVSockets 1 무시)"; Args = $H + @{ Profile = "vm4d"; PvmVcpu = @(16); SvmVcpu = 4; SvmVSockets = 1 }
            Expect = @{ "ev01|sched.node0.affinity" = "0"; "ev01|sched.node1.affinity" = "1"; "ev02|sched.node0.affinity" = "0"; "ev02|sched.node1.affinity" = "1"; "ev02|cores per socket / sockets" = "2 / 2"; "ev01|sched.vcpu0.affinity" = "" } },
         @{ Name = "C3 Two VM 8,8 / rev12";           Args = $H + @{ Profile = "rev12"; PvmVcpu = @(8, 8) }
@@ -535,7 +578,7 @@ function Test-VmDeployPlan {
         @{ Name = "C3 Two VM 8,8 / vm4d";            Args = $H + @{ Profile = "vm4d"; PvmVcpu = @(8, 8) }
            Expect = @{ "ev01|sched.node0.affinity" = "0"; "ev02|sched.node0.affinity" = "1"; "ev01|sched.node1.affinity" = "" } },
         @{ Name = "C4 Two Dual VM 8,8+4 / rev12";    Args = $H + @{ Profile = "rev12"; PvmVcpu = @(8, 8); SvmVcpu = 4 }
-           Expect = @{ "ev02|sched.vcpu0.affinity" = "16,17"; "ev03|sched.vcpu0.affinity" = "31,29,27,25,30,28,26,24"; "ev03|sched.vcpu3.affinity" = "15,13,11,9,14,12,10,8"; "ev01|structure / profile" = "Two Dual VM / rev12" } },
+           Expect = @{ "ev02|sched.vcpu0.affinity" = "16,17"; "ev03|sched.vcpu0.affinity" = "31,29,27,25,30,28,26,24,15,13,11,9,14,12,10,8"; "ev03|sched.vcpu3.affinity" = "31,29,27,25,30,28,26,24,15,13,11,9,14,12,10,8"; "ev01|structure / profile" = "Two Dual VM / rev12" } },
         @{ Name = "C4 Two Dual VM 8,8+4 / vm4d";     Args = $H + @{ Profile = "vm4d"; PvmVcpu = @(8, 8); SvmVcpu = 4 }
            Expect = @{ "ev01|sched.node0.affinity" = "0"; "ev02|sched.node0.affinity" = "1"; "ev03|sched.node0.affinity" = "0"; "ev03|sched.node1.affinity" = "1" } },
         @{ Name = "C5 Multi VM 6x2 / rev12 (순차)";   Args = $H + @{ Profile = "rev12"; PvmCount = 6; PvmVcpu = @(2) }
@@ -547,21 +590,29 @@ function Test-VmDeployPlan {
         @{ Name = "C6 Multi VM 8x2 / vm4d (홀짝)";    Args = $H + @{ Profile = "vm4d"; PvmCount = 8; PvmVcpu = @(2) }
            Expect = @{ "ev07|sched.node0.affinity" = "0"; "ev08|sched.node0.affinity" = "1" } },
         @{ Name = "C7 Multi Dual VM 6x2+4 / rev12";  Args = $H + @{ Profile = "rev12"; PvmCount = 6; PvmVcpu = @(2); SvmVcpu = 4 }
-           Expect = @{ "ev06|sched.vcpu0.affinity" = "20,21"; "ev07|sched.vcpu0.affinity" = "31,29,27,25,30,28,26,24"; "ev07|sched.vcpu2.affinity" = "15,13,11,9,14,12,10,8"; "ev01|structure / profile" = "Multi Dual VM (PVM 6 대) / rev12" } },
+           Expect = @{ "ev06|sched.vcpu0.affinity" = "20,21"; "ev07|sched.vcpu0.affinity" = "31,29,27,25,30,28,26,24,15,13,11,9,14,12,10,8"; "ev07|sched.vcpu2.affinity" = "31,29,27,25,30,28,26,24,15,13,11,9,14,12,10,8"; "ev01|structure / profile" = "Multi Dual VM (PVM 6 대) / rev12" } },
         @{ Name = "C7 Multi Dual VM 6x2+4 / vm4d";   Args = $H + @{ Profile = "vm4d"; PvmCount = 6; PvmVcpu = @(2); SvmVcpu = 4 }
            Expect = @{ "ev05|sched.node0.affinity" = "0"; "ev06|sched.node0.affinity" = "1"; "ev07|sched.node0.affinity" = "0"; "ev07|sched.node1.affinity" = "1"; "ev07|cores per socket / sockets" = "2 / 2" } },
-        @{ Name = "C8 SNC-2 Dual VM 16+4 / rev12";   Args = $H + @{ Profile = "rev12"; HostSnc = 2; PvmVcpu = @(16); SvmVcpu = 4 }
-           Expect = @{ "ev02|sched.vcpu0.affinity" = "31,29,30,28"; "ev02|sched.vcpu1.affinity" = "23,21,22,20"; "ev02|sched.vcpu2.affinity" = "15,13,14,12"; "ev02|sched.vcpu3.affinity" = "7,5,6,4"; "ev01|SNC" = "SNC-2 (2 nodes/socket)"; "ev01|cores per socket / sockets" = "4 / 4"; "ev01|numa.vcpu.maxPerVirtualNode" = "4" } },
+        @{ Name = "C8 SNC-2 Dual VM 16+4 / rev12 (SVM 가상 소켓 1개 = 4노드 합친 값)"; Args = $H + @{ Profile = "rev12"; HostSnc = 2; PvmVcpu = @(16); SvmVcpu = 4 }
+           Expect = @{ "ev02|sched.vcpu0.affinity" = "31,29,30,28,23,21,22,20,15,13,14,12,7,5,6,4"; "ev02|sched.vcpu1.affinity" = "31,29,30,28,23,21,22,20,15,13,14,12,7,5,6,4"; "ev02|sched.vcpu2.affinity" = "31,29,30,28,23,21,22,20,15,13,14,12,7,5,6,4"; "ev02|sched.vcpu3.affinity" = "31,29,30,28,23,21,22,20,15,13,14,12,7,5,6,4"; "ev01|SNC" = "SNC-2 (2 nodes/socket)"; "ev01|cores per socket / sockets" = "4 / 4"; "ev01|numa.vcpu.maxPerVirtualNode" = "4" } },
+        @{ Name = "C8 SNC-2 Dual VM 16+4 / rev12 (SvmVSockets 2 = 소켓별 2노드 합친 값)"; Args = $H + @{ Profile = "rev12"; HostSnc = 2; PvmVcpu = @(16); SvmVcpu = 4; SvmVSockets = 2 }
+           Expect = @{ "ev02|sched.vcpu0.affinity" = "31,29,30,28,23,21,22,20"; "ev02|sched.vcpu1.affinity" = "31,29,30,28,23,21,22,20"; "ev02|sched.vcpu2.affinity" = "15,13,14,12,7,5,6,4"; "ev02|sched.vcpu3.affinity" = "15,13,14,12,7,5,6,4"; "ev02|cores per socket / sockets" = "2 / 2" } },
+        @{ Name = "C8 SNC-2 Dual VM 16+4 / rev12 (SvmVSockets 4 = 노드별)"; Args = $H + @{ Profile = "rev12"; HostSnc = 2; PvmVcpu = @(16); SvmVcpu = 4; SvmVSockets = 4 }
+           Expect = @{ "ev02|sched.vcpu0.affinity" = "31,29,30,28"; "ev02|sched.vcpu1.affinity" = "23,21,22,20"; "ev02|sched.vcpu2.affinity" = "15,13,14,12"; "ev02|sched.vcpu3.affinity" = "7,5,6,4"; "ev02|cores per socket / sockets" = "1 / 4" } },
         @{ Name = "C8 SNC-2 Dual VM 16+4 / vm4d";    Args = $H + @{ Profile = "vm4d"; HostSnc = 2; PvmVcpu = @(16); SvmVcpu = 4 }
            Expect = @{ "ev01|sched.node0.affinity" = "0"; "ev01|sched.node3.affinity" = "3"; "ev02|sched.node2.affinity" = "2"; "ev02|cores per socket / sockets" = "1 / 4" } },
         @{ Name = "C9 HT off Dual VM 16+4 / rev12";  Args = $H + @{ Profile = "rev12"; HostHT = "off"; PvmVcpu = @(16); SvmVcpu = 4 }
-           Expect = @{ "ev01|sched.vcpu0.affinity" = "0"; "ev01|sched.vcpu15.affinity" = "15"; "ev02|sched.vcpu0.affinity" = "15,14,13,12"; "ev02|sched.vcpu2.affinity" = "7,6,5,4"; "ev01|pCPU count" = "16" } },
+           Expect = @{ "ev01|sched.vcpu0.affinity" = "0"; "ev01|sched.vcpu15.affinity" = "15"; "ev02|sched.vcpu0.affinity" = "15,14,13,12,7,6,5,4"; "ev02|sched.vcpu2.affinity" = "15,14,13,12,7,6,5,4"; "ev01|pCPU count" = "16" } },
         @{ Name = "C10 SVM only 4 / rev12";          Args = $H + @{ Profile = "rev12"; SvmVcpu = 4 }
-           Expect = @{ "ev01|sched.vcpu0.affinity" = "31,29,27,25,30,28,26,24"; "ev01|structure / profile" = "SVM 단독 / rev12" } },
+           Expect = @{ "ev01|sched.vcpu0.affinity" = "31,29,27,25,30,28,26,24,15,13,11,9,14,12,10,8"; "ev01|sched.vcpu3.affinity" = "31,29,27,25,30,28,26,24,15,13,11,9,14,12,10,8"; "ev01|structure / profile" = "SVM 단독 / rev12" } },
         @{ Name = "C11 SNC-2 Multi VM 6x2 / vm4d (노드 라운드로빈)"; Args = $H + @{ Profile = "vm4d"; HostSnc = 2; PvmCount = 6; PvmVcpu = @(2) }
            Expect = @{ "ev01|sched.node0.affinity" = "0"; "ev01|sched.node1.affinity" = ""; "ev02|sched.node0.affinity" = "1"; "ev03|sched.node0.affinity" = "2"; "ev04|sched.node0.affinity" = "3"; "ev05|sched.node0.affinity" = "0"; "ev06|sched.node0.affinity" = "1" } },
-        @{ Name = "C12 rev11 Dual VM 16+4";          Args = $H + @{ Profile = "rev11"; PvmVcpu = @(16); SvmVcpu = 4 }
-           Expect = @{ "ev02|sched.vcpu0.affinity" = "31,29,27,25"; "ev02|sched.vcpu2.affinity" = "15,13,11,9" } },
+        @{ Name = "C12 rev11 Dual VM 16+4 (SVM 가상 소켓 1개 = 합친 값)"; Args = $H + @{ Profile = "rev11"; PvmVcpu = @(16); SvmVcpu = 4 }
+           Expect = @{ "ev02|sched.vcpu0.affinity" = "31,29,27,25,15,13,11,9"; "ev02|sched.vcpu1.affinity" = "31,29,27,25,15,13,11,9"; "ev02|sched.vcpu2.affinity" = "31,29,27,25,15,13,11,9"; "ev02|sched.vcpu3.affinity" = "31,29,27,25,15,13,11,9" } },
+        @{ Name = "C12 rev11 Dual VM 16+4 (SvmVSockets 2, 예약 2코어 = 시트 3절의 값)"; Args = $H + @{ Profile = "rev11"; PvmVcpu = @(16); SvmVcpu = 4; SvmVSockets = 2; EsxiReserveCores = 2 }
+           Expect = @{ "ev02|sched.vcpu0.affinity" = "31,29,27,25,23,21"; "ev02|sched.vcpu1.affinity" = "31,29,27,25,23,21"; "ev02|sched.vcpu2.affinity" = "15,13,11,9,7,5"; "ev02|sched.vcpu3.affinity" = "15,13,11,9,7,5"; "ev02|cores per socket / sockets" = "2 / 2" } },
+        @{ Name = "C15 rev11 Dual VM 8+2 (SVM 1소켓 2 vCPU: 두 vCPU 가 같은 값)"; Args = $H + @{ Profile = "rev11"; PvmVcpu = @(8); SvmVcpu = 2 }
+           Expect = @{ "ev02|sched.vcpu0.affinity" = "31,29,27,25,15,13,11,9"; "ev02|sched.vcpu1.affinity" = "31,29,27,25,15,13,11,9"; "ev02|cores per socket / sockets" = "2 / 1"; "ev02|vNUMA nodes" = "1" } },
         @{ Name = "C13 options: share 1:1, lpage off, vpmc off"; Args = $H + @{ Profile = "rev12"; PvmVcpu = @(16); SvmVcpu = 4; ShareRatio = "1:1"; Lpage1GB = "off"; Vpmc = "off"; PvmMemoryGB = @(1540); SvmMemoryGB = 112 }
            Expect = @{ "ev01|cpu shares" = "1 (custom)"; "ev02|mem shares" = "1 (custom)"; "ev01|sched.mem.lpage.enable1GPage" = "(없음)"; "ev02|sched.swap.vmxSwapEnabled" = "(없음)"; "ev01|vpmc.enable" = "(없음)"; "ev01|memory reservation" = "1540 (locked)"; "ev02|memory (GB)" = "112" } },
         @{ Name = "C14 options: share normal, vpmc on"; Args = $H + @{ Profile = "rev12"; PvmVcpu = @(8, 8); ShareRatio = "normal"; Vpmc = "on" }
