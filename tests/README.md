@@ -11,7 +11,7 @@
 | `fake_ops.py` | VCF Operations suite-api 흉내 서버(토큰, 객체 조회와 생성, stats 와 properties 수신). `python3 fake_ops.py <기록 폴더> <포트>`. 기록 폴더에 `preset.json` 을 두면 그 안의 객체가 미리 있는 것으로 동작하고, 없으면 VirtualMachine `testvm` 하나만 있다. 빈 파일 `fail_create` 를 두면 객체 생성을 거부(403)하고, `fail_lookup` 을 두면 객체 조회가 실패(500)한다. 받은 요청은 `requests.jsonl`, 지표는 `stats.jsonl`, 전송 경로는 `stats_paths.jsonl` 과 `props_paths.jsonl`, 만든 객체는 `created.jsonl` 에 기록한다 |
 | `run_guest_config.sh` | `collection_etc/guest_config_push.sh` 를 `fake_ops.py` 에 연결해 실행하고 흉내 서버가 받은 내용을 확인한다: VM 대상, BM 대상(객체 사용과 생성), `--target auto`, `--check`, `--dry-run`, 설정 파일, 실패 경우, jq 경로. `bash run_guest_config.sh [포트]`. 확인 항목마다 한 줄을 출력하고 실패가 있으면 종료 코드가 1 이다. `/sys`, `/proc` 대신 읽을 폴더는 환경 변수 `GCP_ROOT` 로 지정한다(시험 전용) |
 | `stub_esxi_bin/vmkperf`, `esxcli` | ESXi 의 vmkperf, esxcli 흉내. `STUB_VENDOR`, `STUB_GP`, `STUB_FAMILY`, `STUB_MODEL` 로 호스트 종류를 정한다 |
-| `cpu_affinity_model.py` | `cpu_affinity/` 의 PowerShell 스크립트 2개(`SetVcpuAffinityProfile_v3_11.ps1`, `VmDeployPlan_v1_1.ps1`)의 계산부를 Python 으로 옮긴 모델과 점검. `python3 cpu_affinity_model.py` 로 실행하고 마지막 줄이 `RESULT: 전체 통과` 이면 정상이다. 테스트 플랜 시트의 기록 값, 이전 판(3.9)과 값이 달라지는 조건, 계획표와 적용 스크립트의 값 일치, `Test-VmDeployPlan` 사례의 기대값을 점검한다. PowerShell 스크립트 자체를 실행하지는 않으므로, 스크립트를 고치면 PowerShell 이 있는 PC 에서 `Test-VmDeployPlan` 도 실행한다 |
+| `cpu_affinity_model.py` | `cpu_affinity/` 의 PowerShell 스크립트 2개(`SetVcpuAffinityProfile_v3_12.ps1`, `VmDeployPlan_v1_1.ps1`)의 계산부를 Python 으로 옮긴 모델과 점검. `python3 cpu_affinity_model.py` 로 실행하고 마지막 줄이 `RESULT: 전체 통과` 이면 정상이다. 테스트 플랜 시트의 기록 값, 이전 판(3.9)과 값이 달라지는 조건, 계획표와 적용 스크립트의 값 일치, `Test-VmDeployPlan` 사례의 기대값을 점검한다. PowerShell 스크립트 자체를 실행하지는 않으므로, 스크립트를 고치면 PowerShell 이 있는 PC 에서 `Test-VmDeployPlan` 도 실행한다 |
 
 예:
 

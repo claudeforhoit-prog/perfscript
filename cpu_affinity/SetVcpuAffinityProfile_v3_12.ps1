@@ -1,6 +1,6 @@
 ﻿function Set-VcpuAffinityProfile {
     # ==========================================================================
-    # Set-VcpuAffinityProfile  v3.11 (2026-11-20)
+    # Set-VcpuAffinityProfile  v3.12 (2026-11-20)
     #
     # [용도]
     #   ESXi 호스트 한 대의 PVM, SVM 에 vCPU affinity 프로파일을 적용한다.
@@ -11,7 +11,7 @@
     # [실행 방법]
     #   PowerCLI 에서 vCenter 에 연결하고, 이 파일을 불러온 뒤 함수를 실행한다.
     #     Connect-VIServer <vCenter 주소>
-    #     . .\SetVcpuAffinityProfile_v3_11.ps1
+    #     . .\SetVcpuAffinityProfile_v3_12.ps1
     #     Set-VcpuAffinityProfile -ProfileName rev11 -VMHostName esx01 -pvm esx01ev01 -svm esx01ev02
     #   실행하면 호스트와 VM 정보, 제거할 기존 affinity 키, 적용할 값을 차례로 표시하고 y/n 을 묻는다.
     #   y 를 입력하면 적용하고 NUMA 노드별 결과 표를 출력한다. n 을 입력하면 아무것도 변경하지 않는다.
@@ -102,15 +102,15 @@
     #
     # [동작 범위와 전제]
     #   적용 전에 대상 VM 의 기존 sched.vcpuN.affinity, sched.nodeN.affinity 키를 제거한다.
-    #   그 밖의 advanced setting 은 변경하지 않는다.
-    #   예외는 rnd_aff 를 HT Off 호스트에 적용할 때 넣는 NUMA 토폴로지 키뿐이다.
-    #   VM 의 vCPU 수와 소켓당 코어 설정은 변경하지 않는다.
+    #   그 밖의 advanced setting 과 VM 의 vCPU 수, 소켓당 코어 설정은 변경하지 않는다.
+    #   예외는 rnd_aff 를 HT Off 호스트에 적용할 때 SVM 에 넣는 NUMA 토폴로지 키 4개뿐이다
+    #   (cpuid.coresPerSocket, numa.vcpu.coresPerNode, numa.autosize.vcpu.maxPerVirtualNode, numa.autosize.cookie).
     #   pCPU 번호가 코어 순서로 이어지는 호스트를 전제로 한다.
     #   (코어 k 의 스레드 = pCPU k*T 부터 k*T+T-1 까지, T 는 코어당 스레드 수. esxcli hardware cpu list 로 확인)
     #
     # [변경 이력]
-    #   v3.11 (2026-11-20)  첫머리 설명을 용도, 옵션, 적용 예시 중심으로 다시 작성.
-    #                       계산과 화면 출력은 v3.10 과 같다
+    #   v3.12 (2026-11-20)  첫머리 설명의 [동작 범위와 전제] 문장 정정. 계산과 화면 출력은 v3.10 과 같다
+    #   v3.11 (2026-11-20)  첫머리 설명을 용도, 옵션, 적용 예시 중심으로 다시 작성
     #   v3.10 (2026-11-20)  rev12, rev11 의 SVM 배정이 SVM 의 가상 소켓 수를 반영.
     #                       v3.9 까지는 가상 소켓 1개인 SVM 도 vCPU 를 호스트 NUMA 노드별로 나눠 배정했다
     #   v3.9 까지의 변경 내용은 저장소 태그 SetVcpuAffinityProfile-v3.10 의 파일 첫머리에 있다
