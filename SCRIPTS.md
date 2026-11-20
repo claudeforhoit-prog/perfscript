@@ -4,7 +4,7 @@
 옵션과 기본값은 각 스크립트의 옵션 처리 코드(`param`, `getopts`, `case`)에서 뽑았다. 옵션의 자세한 동작은 각 스크립트 첫머리 설명에 있다.
 
 - 파일은 2026-10-27 도구 패키지 v1.5 와 그 뒤 작업 폴더의 최신 판이다. 파일 이름의 판 번호는 원래 이름 그대로 두었다.
-- `cpu_affinity/` 의 `SetVcpuAffinityProfile_v3_12.ps1` 과 `VmDeployPlan_v1_1.ps1` 은 2026-11-20 에 이 저장소에서 고친 판이다. 도구 패키지 v1.5 에는 3.9 와 1.0 이 들어 있다.
+- `cpu_affinity/` 의 `SetVcpuAffinityProfile_v3_12.ps1` 과 `VmDeployPlan_v1_2.ps1` 은 2026-11-20 에 이 저장소에서 고친 판이다. 도구 패키지 v1.5 에는 3.9 와 1.0 이 들어 있다.
 - 접속 주소, 계정, 장비 이름은 예시 값(`esx01`, `ops.example.com`, `user01`, `192.0.2.50`)으로 바꿔 올렸다. 실제 값은 실행 환경에서 넣는다.
 - `.ps1` 은 Windows PowerShell 에서 `Connect-VIServer` 로 vCenter 에 연결한 뒤 `. .\파일.ps1` 로 불러와 함수를 실행한다(예외는 표에 적음).
 
@@ -19,7 +19,7 @@
 | `vm_config/` | `start_vms_lpage_gate_v1_0.sh` | 1.0 | ESXi 셸 | 위와 같은 일을 ESXi 안에서만 수행(vsish 로 1GB backing 확인) |
 | `vm_config/` | `CheckVmRunSettings_v2_0.ps1` | 2.0 | PowerCLI | 호스트의 VM 실행 설정을 그룹별 표로 조회(스펙, affinity, 메모리 등) |
 | `vm_config/` | `set_cat_qos_v1_10.sh` | 1.10 | ESXi 셸 | CAT(LLC way 분할) 프로파일 적용과 Operations 기록 |
-| `cpu_affinity/` | `VmDeployPlan_v1_1.ps1` | 1.1 | PowerShell (vCenter 불필요) | 호스트 사양과 VM 크기를 입력받아 VM 스펙, 고급 설정, CPU affinity 값을 표로 산출 |
+| `cpu_affinity/` | `VmDeployPlan_v1_2.ps1` | 1.2 | PowerShell (vCenter 불필요) | 호스트 사양과 VM 크기를 입력받아 VM 스펙, 고급 설정, CPU affinity 값을 표로 산출 |
 | `cpu_affinity/` | `SetVcpuAffinityProfile_v3_12.ps1` | 3.12 | PowerCLI | vCPU affinity 프로파일 적용 |
 | `cpu_affinity/` | `collect_vcpu_placement_v1_0.sh` | 1.0 | ESXi 셸 | vCPU 가 실행되는 pCPU 와 NUMA locality 기록(읽기 전용) |
 | `cpu_affinity/` | `taskset_pin_primesim.sh` | 판 표기 없음 | 게스트 OS | PrimeSim 프로세스를 잡 단위 또는 스레드 단위로 vCPU 에 고정 |
@@ -117,10 +117,11 @@
 
 ## 4. cpu_affinity
 
-### VmDeployPlan_v1_1.ps1
+### VmDeployPlan_v1_2.ps1
 
 PowerShell 만 있으면 된다. vCenter 연결과 PowerCLI 가 필요 없다.
 
+- 1.2 (2026-11-20): 스크립트 첫머리 설명을 용도, 실행 방법, 함수, 옵션, 적용 예시, 계획표의 구성, 가상 소켓 수, 프로파일, 배정 규칙 순서로 다시 작성했다. 계산과 화면 출력은 1.1 과 같다.
 - 1.1 (2026-11-20): rev12, rev11 의 SVM 배정이 SVM 의 가상 소켓 수를 반영한다. 가상 소켓 수가 호스트 NUMA 노드 수보다 적으면 SVM vCPU 를 호스트 노드별로 나누지 않고, 가상 소켓마다 호스트 노드 묶음의 pCPU 를 합친 같은 값을 준다. 가상 소켓 수가 호스트 노드 수 이상이면 1.0 과 같다.
 - SVM 의 가상 소켓 수 기본값은 1 이다(rev12, rev11). 다른 값은 `-SvmVSockets` 로 지정한다.
 - `Test-VmDeployPlan` 은 사례 27건의 기대값을 대조하고 마지막 줄에 `RESULT: 전체 통과 (27건)` 을 출력한다.

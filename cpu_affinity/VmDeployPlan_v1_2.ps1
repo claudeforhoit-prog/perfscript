@@ -1,93 +1,121 @@
 ﻿# ==============================================================================
-# VmDeployPlan_v1_1.ps1   v1.1 (2026-11-20)
+# VmDeployPlan  v1.2 (2026-11-20)
 #
-#   v1.0 -> v1.1 : rev12, rev11 의 SVM 배정이 SVM 의 가상 소켓 수(vNUMA 노드 수)를 반영 (SetVcpuAffinityProfile v3.10 과 같은 규칙)
-#     v1.0 은 SVM vCPU 를 호스트 NUMA 노드 수로 나눠 노드 하나씩에 배정했다 (가상 소켓 수는 보지 않음).
-#     v1.1 : 가상 소켓 수가 호스트 노드 수보다 적으면 vCPU 를 호스트 노드별로 나누지 않는다.
-#            가상 소켓 1개(자동 규칙의 기본)이면 모든 vCPU 가 전 노드의 SVM 실행 pCPU 를 합친 같은 값을 받는다.
-#            시트 2절, 3절의 값(SVM 4 vCPU 를 2개씩 노드별로 배정)은 -SvmVSockets 2 를 주면 나온다 (그 SVM 은 가상 소켓 2개였다).
-#            3절은 예약 코어가 소켓당 2개인 조건이라 -EsxiReserveCores 2 도 함께 준다.
-#     PVM, vm4d, clear, 그 밖의 표 항목 : 변경 없음.
+# [용도]
+#   호스트 사양과 VM 의 vCPU 수, 메모리를 입력받아 VM 배포 계획표를 산출한다.
+#   계획표에는 VM 스펙, advanced config 값, CPU affinity 값이 들어간다.
+#   실제 호스트와 vCenter 에 접속하지 않는다. PowerShell 만 있으면 된다 (PowerCLI 불필요).
+#   affinity 값은 Set-VcpuAffinityProfile 과 같은 규칙으로 계산한다. 규칙을 고치면 두 스크립트를 같이 고친다.
 #
-#   VM 배포 계획서 생성. 실제 호스트나 vCenter 없이, 호스트 사양과 VM 의 vCPU, 메모리를 입력하면
-#   VM 배포 팀에 전달할 VM 스펙, 고급 설정(advanced config), CPU affinity 값을 표로 만든다.
-#   PowerShell 만 있으면 된다 (PowerCLI, vCenter 연결 불필요).
+# [실행 방법]
+#   PowerShell 에서 이 파일을 불러온 뒤 함수를 실행한다.
+#     . .\VmDeployPlan_v1_2.ps1
+#     New-VmDeployPlan -Profile rev11 -HostSockets 2 -HostCoresPerSocket 8 -PvmVcpu 16 -SvmVcpu 2
+#   계획표를 화면에 출력한다. -OutDir 을 지정하면 같은 표를 csv 파일로 저장한다.
+#   표를 출력한 뒤, VM 을 만든 다음 실제 호스트에서 실행할 명령(Set-VmProfile, Set-VcpuAffinityProfile)을 출력한다.
 #
-#   VM 구조는 PVM 대수와 SVM 유무로 스크립트가 판정한다.
-#     PVM 1대            : PVM 단독 / Dual VM (SVM 있음)
-#     PVM 2대            : Two VM / Two Dual VM (SVM 있음)
-#     PVM 3대 이상        : Multi VM (PVM n대) / Multi Dual VM (SVM 있음)
-#     PVM 없음, SVM 있음  : SVM 단독
+# [함수]
+#   New-VmDeployPlan    계획표를 산출한다
+#   Test-VmDeployPlan   계산 규칙을 점검한다. 마지막 줄이 RESULT: 전체 통과 (27건) 이면 정상이다
 #
-#   [배치 규칙]
-#     PVM 고정 (rev12, rev11)
-#       PVM 1대   : 호스트 코어 0 부터. vCPU i = 코어 i 의 전체 스레드 ("0,1" "2,3" ...)
-#       PVM 2대   : Two VM. PVM1 은 소켓0, PVM2 는 소켓1 의 앞 코어부터 (PVM 하나가 소켓 하나)
-#       PVM 3대+  : Multi VM. 호스트 코어 0 부터 PVM 번호 순서로 순차. PVM1 pCPU 0-3, PVM2 4-7, PVM3 8-11 ...
-#     SVM float (rev12, rev11)
-#       NUMA 노드마다 앞쪽 예약 코어(기본 소켓당 4)를 빼고 남은 코어 위를 float
-#       SVM 가상 소켓 수 >= 호스트 노드 수 : SVM vCPU 를 노드 수로 나눠 뒤 노드부터 배정
-#       SVM 가상 소켓 수 <  호스트 노드 수 : 호스트 노드를 가상 소켓 수만큼 묶고(뒤 노드부터), 가상 소켓 j 의 vCPU 는 묶음 j 의 pCPU 를 합친 같은 값
-#                                          (가상 소켓 1개 = 모든 vCPU 가 전 노드의 pCPU 를 합친 같은 값)
-#       rev12 는 코어의 전체 스레드, rev11 은 HT 짝 스레드만
-#     vm4d (node affinity, sched.nodeN.affinity)
-#       VM 의 vNUMA 노드 j 를 호스트 NUMA 노드에 1:1 로 묶는다. 키 수 = VM 의 vNUMA 노드 수(가상 소켓 수)
-#       PVM 1대, SVM  : 노드 0 부터 차례로 (2노드 호스트 16 vCPU PVM = node0 0, node1 1)
-#       PVM 2대       : 자기 소켓의 노드
-#       PVM 3대+      : PVM 번호 순서로 호스트 노드 라운드로빈. 2노드 호스트 = 홀수 PVM node0 0, 짝수 PVM node0 1
-#     clear : affinity 키 없음 (free float)
+# [옵션]  New-VmDeployPlan
+#   프로파일
+#     -Profile <이름>                  필수. rev12, rev11, vm4d, clear 가운데 하나
+#   호스트
+#     -HostCoresPerSocket <n>          필수. 호스트의 소켓당 물리 코어 수
+#     -HostSockets <n>                 호스트 소켓 수 (기본 2)
+#     -HostHT on|off                   Hyper-Threading 사용 여부 (기본 on)
+#     -HostSnc <n>                     소켓당 NUMA 노드 수. SNC 해제는 1(기본), SNC-2 는 2
+#     -EsxiReserveCores <n>            SVM 배정에서 제외할 소켓당 앞쪽 물리 코어 수 (생략하면 rev12, rev11 은 4)
+#   VM
+#     -PvmVcpu <n> 또는 <n,n,...>      PVM 의 vCPU 수. 값이 하나면 모든 PVM 에 같은 값, 여러 값이면 PVM 마다 지정 (16,8)
+#     -PvmCount <n>                    PVM 대수. 생략하면 -PvmVcpu 에 나열한 값의 개수
+#     -PvmMemoryGB <n> 또는 <n,n,...>  PVM 메모리(GB). 생략하면 계획표에 '-' 로 표시한다
+#     -SvmVcpu <n>                     SVM 의 vCPU 수. 생략하면 SVM 없음 (SVM 은 1대까지)
+#     -SvmMemoryGB <n>                 SVM 메모리(GB)
+#     -PvmVSockets <n>                 PVM 의 가상 소켓 수. 생략하면 자동 산출
+#     -SvmVSockets <n>                 SVM 의 가상 소켓 수. 생략하면 1. vm4d 에서는 적용하지 않는다
+#     -PvmNames <이름,이름,...>        PVM 이름. 생략하면 ev01 부터 번호 순서
+#     -SvmName <이름>                  SVM 이름. 생략하면 PVM 다음 번호 (PVM 1대이면 ev02)
+#     -NamePrefix <이름>               자동으로 정하는 VM 이름 앞에 넣을 호스트 이름. esx01 이면 esx01ev01
+#   설정값
+#     -ShareRatio <값>                 CPU 와 메모리 shares 의 PVM:SVM 비율. 10000:1(기본), 1:1 같은 정수 비율, normal
+#     -Lpage1GB on|off                 1GB large page 관련 키 5개를 계획표에 넣을지 여부 (기본 on)
+#     -Vpmc on|off                     on 이면 vpmc.enable = TRUE 를 계획표에 넣는다 (기본 off)
+#   출력
+#     -OutDir <폴더>                   계획표 csv 를 저장할 폴더. 생략하면 화면에만 출력한다
+#     -PassThru                        계획표를 PowerShell 객체로도 반환한다
+#     -Quiet                           화면 출력을 생략한다
+#   PVM(-PvmVcpu)과 SVM(-SvmVcpu) 가운데 하나는 반드시 지정한다.
+#   설정값과 -OutDir, -NamePrefix 의 기본값은 이 파일의 USER SETTINGS 구역에서 변경할 수 있다.
 #
-#   [가상 소켓 수 = vNUMA 노드 수 자동 규칙]
-#     PVM : ceil(vCPU / 호스트 NUMA 노드당 코어 수), 최대 호스트 노드 수. 2소켓 8코어 호스트에 16 vCPU = 2, 8 vCPU = 1, 2 vCPU = 1
-#           SNC 호스트는 SNC 노드 기준 (vSphere 의 vNUMA 자동 크기 산정과 같은 기준). SNC-2 2소켓 8코어에 16 vCPU = 4 소켓 x 4 코어
-#     SVM : 1. vm4d 는 호스트 노드 수 (전 노드에 1:1)
-#           rev12, rev11 에서 SVM vCPU 를 호스트 노드별로 나눠 배정하려면 -SvmVSockets 에 호스트 노드 수를 준다 (2소켓 호스트 = 2)
-#     -PvmVSockets / -SvmVSockets 로 덮어쓸 수 있다. vm4d 의 sched.nodeN 키 수는 이 값을 따른다
-#     단 vm4d 의 SVM 은 항상 호스트 전 노드 1:1 (적용 스크립트와 동일) 이므로 -SvmVSockets 를 무시한다
-#     numa.vcpu.maxPerVirtualNode = 소켓당 코어 수 (vNUMA 노드 하나 = 가상 소켓 하나)
+# [적용 예시]  2소켓, 소켓당 8코어 호스트 기준
+#   PVM 1대(16 vCPU)와 SVM 1대(2 vCPU, 1소켓)에 rev11 적용 (Dual VM)
+#     New-VmDeployPlan -Profile rev11 -HostSockets 2 -HostCoresPerSocket 8 -PvmVcpu 16 -SvmVcpu 2
+#   메모리와 VM 이름을 넣고 csv 로 저장
+#     New-VmDeployPlan -Profile rev11 -HostSockets 2 -HostCoresPerSocket 8 -PvmVcpu 16 -SvmVcpu 2 -PvmMemoryGB 512 -SvmMemoryGB 64 -NamePrefix esx01 -OutDir C:\perf\config
+#   SVM 을 2소켓(4 vCPU, 소켓당 코어 2)으로 구성
+#     New-VmDeployPlan -Profile rev12 -HostSockets 2 -HostCoresPerSocket 8 -PvmVcpu 16 -SvmVcpu 4 -SvmVSockets 2
+#   PVM 2대(각 8 vCPU)와 SVM 1대(4 vCPU) (Two Dual VM)
+#     New-VmDeployPlan -Profile rev12 -HostSockets 2 -HostCoresPerSocket 8 -PvmVcpu 8,8 -SvmVcpu 4
+#   PVM 6대(각 2 vCPU) (Multi VM)
+#     New-VmDeployPlan -Profile rev12 -HostSockets 2 -HostCoresPerSocket 8 -PvmCount 6 -PvmVcpu 2
+#   NUMA 노드 단위 affinity (vm4d)
+#     New-VmDeployPlan -Profile vm4d -HostSockets 2 -HostCoresPerSocket 8 -PvmVcpu 16 -SvmVcpu 4
+#   SNC-2 호스트(소켓당 32코어)의 PVM 2대(각 32 vCPU), shares 1:1, 1GB large page 관련 키 제외
+#     New-VmDeployPlan -Profile vm4d -HostSockets 2 -HostCoresPerSocket 32 -HostSnc 2 -PvmVcpu 32,32 -ShareRatio 1:1 -Lpage1GB off
 #
-#   [적용 스크립트와의 관계]
-#     값은 SetVcpuAffinityProfile v3.10 과 같은 규칙으로 계산한다 (v3.10 이 위 [배치 규칙]을 적용). 규칙을 바꾸면 두 스크립트를 같이 고친다.
+# [계획표의 구성]
+#   열은 VM, 행은 항목이다. 행은 호스트 전제, VM 기본 정보, vm advanced config, CPU affinity 의 네 구간이다.
+#   값 '(없음)' 은 그 키를 설정하지 않는다는 뜻이다.
+#   csv 파일 이름은 deploy_plan_<프로파일>_<소켓 수>s<코어 수>c_ht<on|off>_snc<n>_<시각>.csv 이다.
 #
-#   [함수]
-#     New-VmDeployPlan    계획서 생성 (화면 표 + csv)
-#     Test-VmDeployPlan   규칙 자체 검증 (대표 사례의 기대값 대조, 전체 통과가 정상)
+# [VM 구조]  PVM 대수와 SVM 유무로 스크립트가 판정한다
+#   PVM 1대        PVM 단독. SVM 이 있으면 Dual VM
+#   PVM 2대        Two VM. SVM 이 있으면 Two Dual VM
+#   PVM 3대 이상   Multi VM. SVM 이 있으면 Multi Dual VM
+#   SVM 만         SVM 단독
 #
-#   [입력 - 호스트]
-#     -HostSockets <n>            소켓 수 (기본 2)
-#     -HostCoresPerSocket <n>     소켓당 물리 코어 수 (필수)
-#     -HostHT on|off              Hyperthreading (기본 on)
-#     -HostSnc <n>                SNC 로 쪼갠 소켓당 NUMA 노드 수. 생략 = SNC 해제(1), SNC-2 = 2
-#     -EsxiReserveCores <n>       SVM 배정에서 빼는 소켓당 앞쪽 코어 수 (기본은 프로파일 값)
+# [가상 소켓 수]
+#   PVM  -PvmVSockets 를 생략하면 vCPU 수를 호스트 NUMA 노드당 코어 수로 나눈 값(올림)이고, 호스트 NUMA 노드 수를 넘지 않는다.
+#        2소켓 8코어 호스트에서 16 vCPU 는 2, 8 vCPU 는 1 이다. SNC 호스트에서는 SNC 노드를 기준으로 계산한다.
+#   SVM  -SvmVSockets 를 생략하면 1 이다. vm4d 에서는 호스트 NUMA 노드 수로 고정한다.
+#   계획표의 cores per socket 은 vCPU 수를 가상 소켓 수로 나눈 값이다. numa.vcpu.maxPerVirtualNode 도 같은 값이다.
 #
-#   [입력 - VM]
-#     -PvmCount <n>               PVM 대수. 생략하면 -PvmVcpu 에 나열한 개수 (값이 하나면 1대)
-#     -PvmVcpu <n> 또는 <n,n,...>  PVM vCPU 수. 하나면 전 PVM 공통, 대수만큼 나열하면 대당 지정
-#     -PvmMemoryGB <n> 또는 <n,...> PVM 메모리 GB (하나면 공통, 생략 = 미표시)
-#     -SvmVcpu <n>                SVM vCPU 수 (0 또는 생략 = SVM 없음. SVM 은 최대 1대)
-#     -SvmMemoryGB <n>            SVM 메모리 GB
-#     -PvmVSockets / -SvmVSockets 가상 소켓 수 (0 = 자동 규칙)
-#     -PvmNames <이름,...>        PVM 이름 (생략 시 ev01, ev02, ... 번호 순)
-#     -SvmName <이름>             SVM 이름 (생략 시 PVM 다음 번호. PVM 1대면 ev02, 6대면 ev07)
-#     -NamePrefix <호스트>         자동 이름 앞에 붙일 호스트 이름 (예 esx01 -> esx01ev01)
+# [프로파일]
+#   rev12  PVM : vCPU i 를 물리 코어 i 의 전체 스레드에 고정한다
+#          SVM : NUMA 노드마다 앞쪽 코어를 제외하고, 남은 코어의 전체 스레드를 준다
+#   rev11  PVM : rev12 와 같다
+#          SVM : 남은 코어의 HT sibling thread(같은 코어의 두 번째 스레드)만 준다
+#   vm4d   vCPU 단위로 고정하지 않고 VM 의 vNUMA 노드를 호스트 NUMA 노드에 1:1 로 지정한다 (sched.nodeN.affinity)
+#   clear  affinity 키를 넣지 않는다
 #
-#   [입력 - 정책]  생략하면 기본값, 주면 그 값으로 표가 변경된다
-#     -Profile rev12 | rev11 | vm4d | clear
-#     -ShareRatio "10000:1" | "1:1" | normal   CPU, 메모리 shares PVM:SVM (기본 10000:1). normal = vSphere 자동값
-#     -Lpage1GB on|off            1GB page 키 5개 (기본 on)
-#     -Vpmc on|off                vpmc.enable (기본 off = 미설정. on 이면 TRUE, 적용은 Set-VmProfile -ExtraConfig 로)
+# [PVM 배정]  rev12, rev11
+#   PVM 1대       호스트 코어 0 부터 배정한다
+#   PVM 2대       PVM1 은 소켓 0, PVM2 는 소켓 1 의 첫 코어부터 배정한다
+#   PVM 3대 이상  호스트 코어 0 부터 PVM 순서대로 이어서 배정한다 (소켓 1개 호스트의 PVM 2대도 같다)
 #
-#   [출력]
-#     화면 표와 -OutDir 의 csv 1개: deploy_plan_<프로파일>_<소켓>s<코어>c_ht<on|off>_snc<n>_<시각>.csv
-#     구간: 호스트 전제 / VM 기본 정보 / vm advanced config / CPU affinity  (열 = VM)
-#     마지막에 VM 생성 뒤 실제 호스트에서 쓸 적용 명령(SetVmProfile, SetVcpuAffinityProfile)을 출력
+# [SVM 배정]  rev12, rev11
+#   제외할 코어는 소켓당 4개(기본)다. 소켓 안에 NUMA 노드가 여럿이면(SNC) 노드마다 같은 수로 나눈다.
+#   값은 SVM 의 가상 소켓 수(-SvmVSockets, 생략하면 1)에 따라 정해진다.
+#   적용된 가상 소켓 수는 계획표의 cores per socket / sockets 행에 표시된다. 같은 입력에서는 실행할 때마다 값이 같다.
+#     가상 소켓 수가 호스트 NUMA 노드 수보다 적은 경우
+#       vCPU 를 호스트 노드별로 나누지 않는다.
+#       가상 소켓이 1개이면 모든 vCPU 가 모든 노드의 pCPU(제외하고 남은 코어)를 합친 같은 값을 받는다.
+#       가상 소켓이 2개 이상이면 가상 소켓마다 호스트 노드 그룹 하나의 pCPU 를 합친 값을 받는다.
+#     가상 소켓 수가 호스트 NUMA 노드 수 이상인 경우
+#       vCPU 를 호스트 노드 수와 같은 개수의 그룹으로 나누고, 마지막 노드부터 그룹마다 노드 하나를 배정한다.
+#   값의 예 (2소켓, 소켓당 8코어, HT On, SNC 해제, rev11, 제외할 코어 소켓당 4개)
+#     -SvmVcpu 2 (가상 소켓 1개)
+#       vcpu0 = vcpu1 = 31,29,27,25,15,13,11,9
+#     -SvmVcpu 4 -SvmVSockets 2
+#       vcpu0, vcpu1 = 31,29,27,25
+#       vcpu2, vcpu3 = 15,13,11,9
 #
-#   사용 예
-#     . .\VmDeployPlan_v1_1.ps1
-#     Test-VmDeployPlan
-#     New-VmDeployPlan -Profile rev12 -HostSockets 2 -HostCoresPerSocket 8 -PvmVcpu 16 -SvmVcpu 4 -PvmMemoryGB 1540 -SvmMemoryGB 112 -OutDir C:\config
-#     New-VmDeployPlan -Profile rev12 -HostSockets 2 -HostCoresPerSocket 8 -PvmCount 6 -PvmVcpu 2 -PvmMemoryGB 200
-#     New-VmDeployPlan -Profile vm4d  -HostSockets 2 -HostCoresPerSocket 32 -HostSnc 2 -PvmVcpu 32,32 -ShareRatio 1:1 -Lpage1GB off
+# [변경 이력]
+#   v1.2 (2026-11-20)  첫머리 설명을 용도, 옵션, 적용 예시 중심으로 다시 작성. 계산과 화면 출력은 v1.1 과 같다
+#   v1.1 (2026-11-20)  rev12, rev11 의 SVM 배정이 SVM 의 가상 소켓 수를 반영.
+#                      v1.0 은 가상 소켓 1개인 SVM 도 vCPU 를 호스트 NUMA 노드별로 나눠 배정했다
 # ==============================================================================
 
 # ==== USER SETTINGS - 여기만 고친다 ===========================================
@@ -123,7 +151,7 @@ $Global:VmPlan_Aliases = @{
 
 
 function Get-VmPlanAffinity {
-    # 배치 계산. 헤더 [배치 규칙] 그대로.
+    # 배치 계산. 첫머리 설명의 [PVM 배정], [SVM 배정] 과 같은 계산.
     # 반환: @{ Settings = [(VMName, Key, Value)...]; Extras = [...]; PvmTargets = [...]; Error = ""; Notes = [...] }
     param (
         [hashtable]$Spec, [string]$ProfileKey,

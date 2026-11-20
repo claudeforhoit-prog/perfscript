@@ -5,7 +5,7 @@ cpu_affinity 폴더의 PowerShell 스크립트 2개의 계산부를 Python 으�
     python3 cpu_affinity_model.py            # 점검 실행 (끝에 RESULT 줄)
 
   m310   : SetVcpuAffinityProfile_v3_12.ps1 의 계산부 (v3.10 에서 정한 계산. v3.11, v3.12 는 첫머리 설명만 다르다)
-  mvdp11 : VmDeployPlan_v1_1.ps1 의 계산부 (Get-VmPlanAffinity 와 표의 행)
+  mvdp11 : VmDeployPlan_v1_2.ps1 의 계산부 (Get-VmPlanAffinity 와 표의 행. v1.1 에서 정한 계산이고 v1.2 는 첫머리 설명만 다르다)
   m39, mvdp, m37 : 이전 판(v3.9, VmDeployPlan v1.0, v3.7)의 계산부. 판 사이의 차이를 볼 때 쓴다
 
 PowerShell 이 없는 장비에서 값을 확인하려고 둔다. 스크립트 자체를 실행하는 시험이 아니므로, 스크립트를 고치면 이 모델도
@@ -704,7 +704,7 @@ def mvdp11(profile, sockets, cps, ht, snc, pvm_vcpu, pvm_count=0, svm_vcpu=0, es
 # 점검: python3 cpu_affinity_model.py
 # ---------------------------------------------------------------------------
 HERE = os.path.dirname(os.path.abspath(__file__))
-VDP_PS1 = os.path.join(HERE, "..", "cpu_affinity", "VmDeployPlan_v1_1.ps1")
+VDP_PS1 = os.path.join(HERE, "..", "cpu_affinity", "VmDeployPlan_v1_2.ps1")
 
 
 def _svm_values(r, name):
@@ -887,7 +887,7 @@ def main():
     total = 0
     for title, fn in (("1. 시트 기록과 사용자 사례 (v3.10)", check_records), ("2. v3.9 와 v3.10 의 값 비교", check_versions),
                       ("3. 계획표(v1.1)와 적용(v3.10)의 값 비교", check_plan_equals_apply),
-                      ("4. VmDeployPlan_v1_1.ps1 의 자체 점검 기대값", check_ps1_selftest)):
+                      ("4. VmDeployPlan_v1_2.ps1 의 자체 점검 기대값", check_ps1_selftest)):
         print(title)
         total += fn(log)
     print("RESULT: %s" % ("전체 통과" if total == 0 else "실패 %d건" % total))
