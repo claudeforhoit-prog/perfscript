@@ -4,7 +4,7 @@
 옵션과 기본값은 각 스크립트의 옵션 처리 코드(`param`, `getopts`, `case`)에서 뽑았다. 옵션의 자세한 동작은 각 스크립트 첫머리 설명에 있다.
 
 - 파일은 2026-10-27 도구 패키지 v1.5 와 그 뒤 작업 폴더의 최신 판이다. 파일 이름의 판 번호는 원래 이름 그대로 두었다.
-- `cpu_affinity/` 의 `SetVcpuAffinityProfile_v3_10.ps1` 과 `VmDeployPlan_v1_1.ps1` 은 2026-11-20 에 이 저장소에서 고친 판이다. 도구 패키지 v1.5 에는 3.9 와 1.0 이 들어 있다.
+- `cpu_affinity/` 의 `SetVcpuAffinityProfile_v3_11.ps1` 과 `VmDeployPlan_v1_1.ps1` 은 2026-11-20 에 이 저장소에서 고친 판이다. 도구 패키지 v1.5 에는 3.9 와 1.0 이 들어 있다.
 - 접속 주소, 계정, 장비 이름은 예시 값(`esx01`, `ops.example.com`, `user01`, `192.0.2.50`)으로 바꿔 올렸다. 실제 값은 실행 환경에서 넣는다.
 - `.ps1` 은 Windows PowerShell 에서 `Connect-VIServer` 로 vCenter 에 연결한 뒤 `. .\파일.ps1` 로 불러와 함수를 실행한다(예외는 표에 적음).
 
@@ -20,7 +20,7 @@
 | `vm_config/` | `CheckVmRunSettings_v2_0.ps1` | 2.0 | PowerCLI | 호스트의 VM 실행 설정을 그룹별 표로 조회(스펙, affinity, 메모리 등) |
 | `vm_config/` | `set_cat_qos_v1_10.sh` | 1.10 | ESXi 셸 | CAT(LLC way 분할) 프로파일 적용과 Operations 기록 |
 | `cpu_affinity/` | `VmDeployPlan_v1_1.ps1` | 1.1 | PowerShell (vCenter 불필요) | 호스트 사양과 VM 크기를 입력받아 VM 스펙, 고급 설정, CPU affinity 값을 표로 산출 |
-| `cpu_affinity/` | `SetVcpuAffinityProfile_v3_10.ps1` | 3.10 | PowerCLI | vCPU affinity 프로파일 적용 |
+| `cpu_affinity/` | `SetVcpuAffinityProfile_v3_11.ps1` | 3.11 | PowerCLI | vCPU affinity 프로파일 적용 |
 | `cpu_affinity/` | `collect_vcpu_placement_v1_0.sh` | 1.0 | ESXi 셸 | vCPU 가 실행되는 pCPU 와 NUMA locality 기록(읽기 전용) |
 | `cpu_affinity/` | `taskset_pin_primesim.sh` | 판 표기 없음 | 게스트 OS | PrimeSim 프로세스를 잡 단위 또는 스레드 단위로 vCPU 에 고정 |
 | `collection_etc/` | `config_snapshot_v1_1.ps1` | 1.1 | PowerCLI | 테스트 전 구성 스냅샷(호스트 고급 설정, VM 스펙, ExtraConfig, 게스트 값, CAT 값) |
@@ -130,8 +130,9 @@ PowerShell 만 있으면 된다. vCenter 연결과 PowerCLI 가 필요 없다.
 | `New-VmDeployPlan` | `-Profile`(필수), `-HostSockets`(2), `-HostCoresPerSocket`(0), `-HostHT`(`on`), `-HostSnc`(1), `-EsxiReserveCores`(-1), `-PvmCount`(0), `-PvmVcpu`, `-PvmMemoryGB`, `-SvmVcpu`(0), `-SvmMemoryGB`(0), `-PvmVSockets`(0), `-SvmVSockets`(0), `-PvmNames`, `-SvmName`, `-NamePrefix`, `-ShareRatio`, `-Lpage1GB`, `-Vpmc`, `-OutDir`, `-PassThru`, `-Quiet` |
 | `Test-VmDeployPlan` | 배치 규칙 자체 점검. 옵션은 스크립트 첫머리 설명 참조 |
 
-### SetVcpuAffinityProfile_v3_10.ps1
+### SetVcpuAffinityProfile_v3_11.ps1
 
+- 3.11 (2026-11-20): 스크립트 첫머리 설명을 용도, 실행 방법, 옵션, 적용 예시, 프로파일, 배정 규칙 순서로 다시 작성했다. 계산과 화면 출력은 3.10 과 같다. 3.9 까지의 변경 내용은 태그 `SetVcpuAffinityProfile-v3.10` 의 파일 첫머리에 있다.
 - 3.10 (2026-11-20): rev12, rev11 의 SVM 배정이 SVM 의 가상 소켓 수를 반영한다. 가상 소켓 수는 VM 의 vCPU 수와 소켓당 코어 값으로 계산한다(PVM 과 같은 방법).
 - 가상 소켓 수가 호스트 NUMA 노드 수 이상이면 3.9 와 같다(vCPU 를 노드 수만큼 묶어 마지막 노드부터 배정).
 - 가상 소켓 수가 호스트 NUMA 노드 수보다 적으면 SVM vCPU 를 호스트 노드별로 나누지 않는다. 가상 소켓마다 호스트 노드 묶음의 pCPU 를 합친 같은 값을 준다. 가상 소켓이 1개이면 모든 vCPU 가 같은 값을 받는다.

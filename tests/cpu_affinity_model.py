@@ -4,7 +4,7 @@ cpu_affinity 폴더의 PowerShell 스크립트 2개의 계산부를 Python 으�
 
     python3 cpu_affinity_model.py            # 점검 실행 (끝에 RESULT 줄)
 
-  m310   : SetVcpuAffinityProfile_v3_10.ps1 의 계산부
+  m310   : SetVcpuAffinityProfile_v3_11.ps1 의 계산부 (v3.10 에서 정한 계산. v3.11 은 첫머리 설명만 다르다)
   mvdp11 : VmDeployPlan_v1_1.ps1 의 계산부 (Get-VmPlanAffinity 와 표의 행)
   m39, mvdp, m37 : 이전 판(v3.9, VmDeployPlan v1.0, v3.7)의 계산부. 판 사이의 차이를 볼 때 쓴다
 

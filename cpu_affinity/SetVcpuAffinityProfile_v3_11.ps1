@@ -1,172 +1,119 @@
 ﻿function Set-VcpuAffinityProfile {
     # ==========================================================================
-    # v3.10 (2026-11-20)
+    # Set-VcpuAffinityProfile  v3.11 (2026-11-20)
     #
-    #   v3.9 -> v3.10 : rev12/rev11 의 SVM 배정이 VM 의 가상 소켓 수(vNUMA 노드 수)를 반영
-    #     v3.9 까지는 SVM vCPU 를 호스트 NUMA 노드 수로 나눠 노드 하나씩에 배정했다 (VM 의 가상 소켓 수는 보지 않음).
-    #     그래서 가상 소켓 1개(vNUMA 1노드)인 SVM 도 vCPU 가 호스트 노드별로 나뉘어 배정됐다.
-    #       예) 2소켓 8코어 HT on, rev11, SVM 2 vCPU 1소켓 : vcpu0 = 31,29,27,25 / vcpu1 = 15,13,11,9
-    #     v3.10 : SVM 의 가상 소켓 수 VS 를 VM 에서 읽는다 (PVM 과 같은 방법. 소켓당 코어 미판독 시 1).
-    #       VS >= 호스트 노드 수 : 변경 없음. vCPU 를 노드 수만큼 묶어 마지막 노드부터 배정 (시트 §2, §3 의 값.
-    #                              그 SVM 은 4 vCPU, 소켓당 코어 2, 가상 소켓 2개였다).
-    #       VS <  호스트 노드 수 : 호스트 노드를 VS 묶음으로 나누고(뒤 노드부터), 가상 소켓 j 의 vCPU 는
-    #                              묶음 j 에 든 노드들의 SVM 실행 pCPU 를 합친 같은 값을 받는다.
-    #         VS = 1 이면 모든 vCPU 가 전 노드의 SVM 실행 pCPU 를 합친 같은 값.
-    #         예) 위 조건 : vcpu0 = vcpu1 = 31,29,27,25,15,13,11,9
-    #     결과 리포트 : 값이 여러 노드에 걸친 키는 걸친 노드의 줄마다 표시 (v3.9 는 첫 pCPU 의 노드 줄에만 표시).
-    #                   값에 범위 표기(예: 8-15)가 있으면 범위 안의 pCPU 로 노드를 판정.
-    #     안내 문구 : SVM 의 가상 소켓 수와 그 근거(vCPU 수, 소켓당 코어 판독값 또는 미판독)를 표시.
-    #     적용 전 확인 표 : 값이 길어도 잘리지 않게 줄을 바꿔 표시 (Format-Table -Wrap).
-    #     PVM, vm4d, clear, 예약 코어, HT, SNC, SvmScope host : 변경 없음. VmDeployPlan v1.1 과 같은 규칙.
+    # [용도]
+    #   ESXi 호스트 한 대의 PVM, SVM 에 vCPU affinity 프로파일을 적용한다.
+    #   VM 의 sched.vcpuN.affinity 키를 설정한다 (vm4d 프로파일은 sched.nodeN.affinity 키).
+    #   호스트의 소켓 수, 코어 수, HT, NUMA 노드(SNC)와 VM 의 vCPU 수, 소켓당 코어는
+    #   실행할 때 vCenter 에서 읽는다. 이 값들은 입력하지 않는다.
     #
-    # v3.9  (2026-10-27)
+    # [실행 방법]
+    #   PowerCLI 에서 vCenter 에 연결하고, 이 파일을 불러온 뒤 함수를 실행한다.
+    #     Connect-VIServer <vCenter 주소>
+    #     . .\SetVcpuAffinityProfile_v3_11.ps1
+    #     Set-VcpuAffinityProfile -ProfileName rev11 -VMHostName esx01 -pvm esx01ev01 -svm esx01ev02
+    #   실행하면 호스트와 VM 정보, 제거할 기존 affinity 키, 적용할 값을 차례로 표시하고 y/n 을 묻는다.
+    #   y 를 입력하면 적용하고 NUMA 노드별 결과 표를 출력한다. n 을 입력하면 아무것도 변경하지 않는다.
     #
-    #   v3.7 -> v3.9 : Multi VM rev12/rev11 PVM 순차 고정, vm4d 만 노드 라운드로빈,
-    #                  VmDeployPlan v1.0 배치 규칙과 일치
-    #     PVM 고정 (rev12, rev11)
-    #       PVM 1대  : 변경 없음. 호스트 코어 0 부터.
-    #       PVM 2대  : 변경 없음 (Two VM). PVM1 = 소켓0, PVM2 = 소켓1 의 앞 코어부터.
-    #                  배정 가능 코어 = 소켓당 코어 수 (vCPU 가 더 많으면 중단).
-    #       PVM 3대+ : 소켓 번갈아 배정 제거. 호스트 코어 0 부터 PVM 번호 순서로 순차 고정
-    #                  (PVM1 코어 0-3, PVM2 코어 4-7 ...). 소켓 경계에서 끊지 않는다.
-    #                  전체 코어보다 vCPU 합이 많으면 중단.
-    #       소켓 1개 호스트의 PVM 2대 : 코어 0 부터 순차 (결과 변경 없음).
-    #       Multi VM 에서 vNUMA 1노드 PVM 의 고정 코어가 NUMA 노드 경계에 걸치면 주의 문구 (값 변경 없음).
-    #     SVM float, 예약 코어, rev11 HT 짝 스레드, SNC, HT Off, clear : 변경 없음 (VmDeployPlan 과 동일).
-    #     vm4d (sched.nodeN.affinity)
-    #       PVM 키 수 = VM 의 vNUMA 노드 수 (가상 소켓 수 = ceil(vCPU / 소켓당 코어), VM 설정에서 판독).
-    #       소켓당 코어 미판독(전원 인가 시 자동 배정) 시 배치 규칙 자동값
-    #         ceil(vCPU / 호스트 NUMA 노드당 코어), 최대 호스트 노드 수.
-    #       PVM 1대 : 호스트 노드 0 부터 vNUMA 노드 수만큼 1:1.
-    #       SVM : 변경 없음. 전 호스트 노드 1:1 (node0..nodeN-1 = 호스트 노드 0..N-1), VM 판독값과 무관.
-    #             VM 가상 소켓 수가 호스트 노드 수와 다르면 값은 그대로 두고 주의 문구만 출력.
-    #       PVM 2대 (Two VM) : 자기 소켓의 첫 노드부터.
-    #       PVM 3대+ (또는 소켓 1개 호스트의 PVM 2대) : PVM 번호 순서로 호스트 노드 라운드로빈.
-    #         시작 노드 = (PVM 순번 x vNUMA 노드 수) mod 호스트 노드 수. 번갈아 배정은 vm4d 에만 해당.
-    #     vNUMA 정합 주의 문구 : 기준을 소켓 span 에서 배치 규칙 자동값(NUMA 노드 기준, SNC 반영)으로 변경.
-    #       vm4d 의 SVM 도 대상 (기준 = 호스트 노드 수).
+    # [옵션]
+    #   -ProfileName <이름>       필수. rev12, rev11, rnd_aff, vm4d, clear 가운데 하나
+    #   -VMHostName <이름>        필수. 대상 VM 이 실행되는 ESXi 호스트 이름 (vCenter 에 표시되는 이름).
+    #                             이 호스트의 CPU 구성으로 값을 계산한다
+    #   -pvm <VM 이름>            PVM 1대
+    #   -pvm2 <VM 이름>           두 번째 PVM. -pvm 과 함께 쓴다 (PVM 2대)
+    #   -PvmCount <n>             PVM n대. -pvm 이름의 끝 숫자부터 n개의 이름을 만든다
+    #                             (-pvm esx01ev01 -PvmCount 8 은 esx01ev01 부터 esx01ev08 까지)
+    #   -pvms <이름,이름,...>     PVM 이름을 직접 나열한다. -pvm2, -PvmCount 와 함께 쓸 수 없다
+    #   -svm <VM 이름>            SVM 1대. 생략하면 PVM 에만 적용한다
+    #   -PvmOnly                  PVM 의 키만 적용한다. SVM 은 변경하지 않고 결과 표에만 표시한다.
+    #                             -pvm 과 함께 쓴다
+    #   -SvmOnly                  SVM 의 키만 적용한다. PVM 은 변경하지 않고 결과 표에만 표시한다.
+    #                             -svm 과 함께 쓴다
+    #   -EsxiReserveCores <n>     SVM 배정에서 제외할 소켓당 앞쪽 물리 코어 수.
+    #                             생략하면 프로파일 값 (rev12, rev11 은 4)
+    #   -NumaNodesPerSocket <n>   소켓당 NUMA 노드 수. 호스트가 SNC 노드를 보고하지 않을 때만 지정한다
+    #                             (생략하면 호스트에서 읽음)
+    #   -SkipTopologyKeys         rnd_aff 를 HT Off 호스트에 적용할 때 SVM 의 NUMA 토폴로지 키를 넣지 않는다
+    #   PVM(-pvm, -pvms)과 -svm 가운데 하나는 반드시 지정한다.
     #
-    # v3.7  (2026-09-21)
+    # [적용 예시]  esx01 은 호스트 이름, esx01ev01 등은 VM 이름의 예
+    #   PVM 1대와 SVM 1대 (Dual VM)
+    #     Set-VcpuAffinityProfile -ProfileName rev11 -VMHostName esx01 -pvm esx01ev01 -svm esx01ev02
+    #   SVM 의 값만 다시 적용 (PVM 은 그대로 둠)
+    #     Set-VcpuAffinityProfile -ProfileName rev11 -VMHostName esx01 -pvm esx01ev01 -svm esx01ev02 -SvmOnly
+    #   PVM 2대와 SVM 1대 (Two Dual VM)
+    #     Set-VcpuAffinityProfile -ProfileName rev12 -VMHostName esx01 -pvm esx01ev01 -pvm2 esx01ev02 -svm esx01ev03
+    #   PVM 8대 (Multi VM, esx01ev01 부터 esx01ev08 까지)
+    #     Set-VcpuAffinityProfile -ProfileName rev12 -VMHostName esx01 -pvm esx01ev01 -PvmCount 8
+    #   PVM 이름을 나열하고 SVM 1대 추가
+    #     Set-VcpuAffinityProfile -ProfileName rev12 -VMHostName esx01 -pvms esx01ev01,esx01ev03,esx01ev05 -svm esx01ev07
+    #   SVM 배정에서 제외할 코어를 소켓당 2개로 지정 (테스트 플랜 CPU Affinity 시트 3절의 rev11 값과 같은 조건)
+    #     Set-VcpuAffinityProfile -ProfileName rev11 -VMHostName esx01 -pvm esx01ev01 -svm esx01ev02 -EsxiReserveCores 2
+    #   NUMA 노드 단위 affinity (vm4d)
+    #     Set-VcpuAffinityProfile -ProfileName vm4d -VMHostName esx01 -pvm esx01ev01 -svm esx01ev02
+    #   affinity 키 제거 (free float)
+    #     Set-VcpuAffinityProfile -ProfileName clear -VMHostName esx01 -pvm esx01ev01 -svm esx01ev02
     #
-    #   v3.6 -> v3.7 : PVM 여러 대 (3대 이상) 구조 지원 - Multi VM / Multi Dual VM
-    #     SVM 없이 PVM 만 여러 대 (예: PVM 6대, 8대) 를 배치한다.
-    #     지정 방법 (둘 중 하나)
-    #       -pvm esx01ev01 -PvmCount 8      : -pvm 이름 끝 숫자를 시작 번호로
-    #                                            N 개 이름 생성 (ev01..ev08, 자릿수 유지)
-    #       -pvms esx01ev01,esx01ev02,…  : 이름 목록 직접 지정
-    #       (-pvm/-pvm2 = PVM 2대 는 그대로. -svm 은 있어도 되고 없어도 된다)
-    #     배치 규칙 (PVM 2대 이상 공통 - Two VM 의 확장)
-    #       PVM k -> 소켓 (k mod 소켓수) 에 번갈아 배정 (라운드로빈),
-    #       같은 소켓 안에서는 앞선 PVM 이 쓴 코어 다음부터 순차로 채운다.
-    #       각 PVM 의 vCPU 수는 VM 에서 읽는다 (대수마다 달라도 됨).
-    #       PVM 2대면 v3.6 Two VM 과 결과가 같다 (PVM1=소켓0 코어 0.., PVM2=소켓1 코어 0..).
-    #       예) 2소켓 8코어, PVM 8대 × 2vCPU : 소켓0 = PVM1, 3, 5, 7 (코어 0-7),
-    #                                            소켓1 = PVM2, 4, 6, 8 (코어 8-15)
-    #           2소켓 8코어, PVM 6대 × 2vCPU : 소켓0 = PVM1, 3, 5 (코어 0-5), 소켓1 = PVM2, 4, 6
-    #       소켓에 남은 코어보다 vCPU 가 많으면 중단한다 (겹쳐 핀하지 않는다).
-    #       소켓이 1개면 중단하지 않고 같은 소켓에 순차 배치한다 (v3.6 의 Two VM 1소켓
-    #       중단은 이 규칙으로 대체 - 참고 문구 출력).
-    #     vNUMA 자동 반영 : 각 PVM 의 vCPU 수, 소켓당 코어를 VM 에서 읽어 배치와 경고에
-    #       반영한다. VM 의 소켓당 코어 설정 자체는 바꾸지 않는다 (전원 끈 상태에서 VM
-    #       설정으로 바꿔야 하는 값 - 이 스크립트는 affinity 키만 만진다).
-    #     vm4d : PVM k -> 배정된 소켓의 노드만, SVM -> 전 노드 1:1.
-    #     라벨 : PVM 3대 이상 = "Multi VM (PVM N대)" / SVM 있으면 "Multi Dual VM".
+    # [프로파일]
+    #   rev12    PVM : vCPU i 를 물리 코어 i 의 전체 스레드에 고정한다
+    #                  (HT On 은 "0,1" "2,3" ..., HT Off 는 "0" "1" ...)
+    #            SVM : NUMA 노드마다 앞쪽 코어를 제외하고, 남은 코어의 전체 스레드를 준다
+    #   rev11    PVM : rev12 와 같다
+    #            SVM : 남은 코어의 HT sibling thread(같은 코어의 두 번째 스레드)만 준다.
+    #                  HT Off 호스트에서는 rev12 와 같은 값이 된다
+    #   rnd_aff  PVM : vCPU i 를 물리 코어 i 의 첫 번째 스레드에 고정한다. PVM 1대 구조에서만 쓴다
+    #            SVM : 모든 vCPU 에 호스트 전체 코어의 HT sibling thread 를 준다.
+    #                  HT Off 호스트에서는 affinity 대신 NUMA 토폴로지 키 4개를 넣는다 (VM 을 껐다 켜야 반영)
+    #   vm4d     vCPU 단위로 고정하지 않고 VM 의 vNUMA 노드를 호스트 NUMA 노드에 1:1 로 지정한다
+    #   clear    기존 affinity 키를 제거하고 새 키를 넣지 않는다
+    #   이전 이름(vm4b_rev12, rev12_htoff, rev12_snc2, vm4b_rev11, rev11_snc, numa, free float 등)도 받는다.
     #
-    #   v3.5 -> v3.6 : 토폴로지 명칭 확정 - 동작 변경 없음
-    #     Dual VM     = PVM 1대 + SVM 1대            (구 표기 DualVM+SVM)
-    #     Two VM      = PVM 2대, SVM 없음
-    #     Two Dual VM = Two VM 에 Dual VM 의 SVM 구조를 합친 것
-    #                   = PVM 2대 + SVM 1대           (구 표기 TwoVM+SVM)
-    #     그 밖: clear 프로파일에서 vNUMA 정합 경고 생략(핀 계획이 없어 무의미),
-    #            토폴로지 라벨 산출을 단문 if 로 재작성.
+    # [PVM 배정]  rev12, rev11
+    #   PVM 1대       호스트 코어 0 부터 배정한다
+    #   PVM 2대       PVM1 은 소켓 0, PVM2 는 소켓 1 의 첫 코어부터 배정한다.
+    #                 vCPU 수가 소켓당 코어 수보다 많으면 중단한다
+    #   PVM 3대 이상  호스트 코어 0 부터 PVM 순서대로 이어서 배정한다 (소켓 1개 호스트의 PVM 2대도 같다)
     #
-    #   정본 : 테스트 계획서 시트 "CPU Affinity" (§1~§10)
+    # [SVM 배정]  rev12, rev11
+    #   제외할 코어는 소켓당 4개(기본)다. 소켓 안에 NUMA 노드가 여럿이면(SNC) 노드마다 같은 수로 나눈다.
+    #   값은 SVM 의 가상 소켓 수에 따라 정해진다. 가상 소켓 수 = vCPU 수 / 소켓당 코어.
+    #   소켓당 코어는 VM 의 CPU 설정 Cores per Socket 값이고, 읽지 못하면 가상 소켓 1개로 본다.
+    #   스크립트가 읽은 값은 실행 화면의 "svm : ..." 줄과 "SVM 가상 소켓 n개" 줄에 표시된다.
+    #   같은 호스트와 같은 VM 설정에서는 실행할 때마다 값이 같다.
+    #     가상 소켓 수가 호스트 NUMA 노드 수보다 적은 경우
+    #       vCPU 를 호스트 노드별로 나누지 않는다.
+    #       가상 소켓이 1개이면 모든 vCPU 가 모든 노드의 pCPU(제외하고 남은 코어)를 합친 같은 값을 받는다.
+    #       가상 소켓이 2개 이상이면 호스트 노드를 가상 소켓 수와 같은 개수의 그룹으로 나누고(마지막 노드부터),
+    #       가상 소켓마다 그룹 하나의 pCPU 를 합친 값을 받는다.
+    #     가상 소켓 수가 호스트 NUMA 노드 수 이상인 경우
+    #       vCPU 를 호스트 노드 수와 같은 개수의 그룹으로 나누고, 마지막 노드부터 그룹마다 노드 하나를 배정한다.
+    #   값의 예 (2소켓, 소켓당 8코어, HT On, SNC 해제, 제외할 코어 소켓당 4개. 소켓 0 은 pCPU 0-15, 소켓 1 은 pCPU 16-31)
+    #     rev11, SVM 2 vCPU 1소켓 (소켓당 코어 2)
+    #       vcpu0 = vcpu1 = 31,29,27,25,15,13,11,9
+    #     rev11, SVM 4 vCPU 2소켓 (소켓당 코어 2)
+    #       vcpu0, vcpu1 = 31,29,27,25
+    #       vcpu2, vcpu3 = 15,13,11,9
+    #     rev12, SVM 2 vCPU 1소켓 (소켓당 코어 2)
+    #       vcpu0 = vcpu1 = 31,29,27,25,30,28,26,24,15,13,11,9,14,12,10,8
+    #     rev12, SVM 4 vCPU 2소켓 (소켓당 코어 2)
+    #       vcpu0, vcpu1 = 31,29,27,25,30,28,26,24
+    #       vcpu2, vcpu3 = 15,13,11,9,14,12,10,8
     #
-    #   v3.4 -> v3.5 : DualVM+SVM / TwoVM+SVM 토폴로지 지원
-    #     VM 2대 = DualVM+SVM (PVM 1 + SVM 1) - 기존 동작 그대로.
-    #     VM 3대 = TwoVM+SVM  (PVM 2 + SVM 1) - -pvm2 를 주면 이 구조.
-    #     전제 : set_cat_qos 의 CAT 배치 - PVM1 = NUMA node0 안, PVM2 = node1 안,
-    #            SVM 은 양 노드 span. 피닝은 VM 쪽(이 스크립트) 몫.
-    #     TwoVM 규칙:
-    #       PVM1 : vcpu i -> 소켓0 의 코어 i   (코어 단위 - HT On/Off 자동 반영)
-    #       PVM2 : vcpu i -> 소켓1 의 코어 i
-    #       SVM  : DualVM 과 동일 (노드별 예약 제외 후 float - 양 소켓 span)
-    #       vm4d : PVM1 -> 소켓0 노드만, PVM2 -> 소켓1 노드만, SVM -> 전 노드
-    #     SVM 없는 구조 : -svm 을 생략하면 PVM(1대든 2대든)만 적용한다.
-    #       SVM 관련 계산, 키는 전부 생략되고 확인 표에도 PVM 쪽만 나온다.
-    #     소켓 수 커버리지 :
-    #       1소켓  - DualVM 동작(노드 1개로 계산). TwoVM 은 PVM 2대를 소켓별로
-    #                나눌 수 없어 중단한다.
-    #       4소켓+ - DualVM 은 전 소켓 사용. TwoVM 은 PVM1=소켓0, PVM2=소켓1 만
-    #                쓰고 SVM 은 전 노드에 걸친다(소켓 2, 3 은 PVM 미사용).
-    #       SNC-2/4 - 노드 분할, 예약 분배는 소켓 수와 무관하게 자동 반영.
-    #     부분 적용 스위치:
-    #       -SvmOnly - SVM 쪽 키만 적용. PVM 은 계획, 사전 제거에서 빠지고
-    #                  마지막 결과 리포트에는 현재 상태 그대로 나온다.
-    #       -PvmOnly - 반대. 결과 리포트는 항상 이름을 준 VM 전부를 보여준다.
-    #     PVM vNUMA 정합 경고: VM 의 소켓당 코어 설정에서 나오는
-    #       vNUMA 노드 수가 이 스크립트의 물리 배치(소켓 span)와 다르면
-    #       적용 전 경고를 띄운다 (중단 아님). SVM 은 정본(§6)이 원래
-    #       vNUMA 1노드 + 물리 2노드 float 라 경고 대상이 아니다.
+    # [동작 범위와 전제]
+    #   적용 전에 대상 VM 의 기존 sched.vcpuN.affinity, sched.nodeN.affinity 키를 제거한다.
+    #   그 밖의 advanced setting 은 변경하지 않는다.
+    #   예외는 rnd_aff 를 HT Off 호스트에 적용할 때 넣는 NUMA 토폴로지 키뿐이다.
+    #   VM 의 vCPU 수와 소켓당 코어 설정은 변경하지 않는다.
+    #   pCPU 번호가 코어 순서로 이어지는 호스트를 전제로 한다.
+    #   (코어 k 의 스레드 = pCPU k*T 부터 k*T+T-1 까지, T 는 코어당 스레드 수. esxcli hardware cpu list 로 확인)
     #
-    #   v3.3 -> v3.4 : 하드웨어별 프로파일을 없애고 정책 하나로 합침
-    #     _htoff / _snc2 는 별개 정책이 아니라 같은 정책이 다른 하드웨어에서 나온
-    #     결과값이었다. 시트 값이 그것을 보여준다 -
-    #       §2 rev12       소켓당 8코어, 소켓당 4코어 제외
-    #       §7 rev12_snc2  노드당 4코어, 노드당 2코어 제외 = 소켓당 4코어 제외 (동일)
-    #       §8 rev12_htoff 코어당 스레드가 1개일 뿐, 코어 배정은 §2 와 동일
-    #     그래서 v3.4 는 프로파일을 정책 단위로만 둔다. HT On/Off 와 SNC 는
-    #     호스트에서 읽어 자동 반영한다. 이름은 하나, 결과는 하드웨어에 맞춰 달라진다.
-    #
-    #       v3.3 까지                     v3.4
-    #       rev12 / rev12_htoff / rev12_snc  ->  rev12   (하드웨어 자동 반영)
-    #       rev11 / rev11_snc                ->  rev11
-    #       vm4d / clear                     ->  그대로
-    #     옛 이름은 전부 별칭으로 계속 받는다.
-    #
-    #   정책 (rev12 / rev11 공통)
-    #     PVM : vcpu i -> 물리 코어 i 의 전체 스레드
-    #           HT On  "0,1" "2,3" ... / HT Off  "0" "1" ...
-    #     SVM : 메모리 도메인(= 호스트 NUMA 노드. SNC 를 끄면 소켓 하나가 노드 하나)마다
-    #           앞쪽 코어를 ESXi 몫으로 빼고, 남은 코어에 float 시킨다.
-    #           - 제외량은 소켓당 4 물리 코어(HT 스레드까지 세면 8개)로 고정.
-    #             소켓 안에 노드가 여럿이면 그 4코어를 노드에 균등 분배한다
-    #             (SNC-2, 소켓당 8코어면 노드당 2코어 - 제외 총량은 그대로 4코어/소켓).
-    #           - SVM 의 가상 소켓 수(vNUMA 노드 수)가 호스트 노드 수 이상이면
-    #             SVM vCPU 를 노드 수만큼 균등하게 묶어 같은 affinity 를 준다.
-    #             묶음 크기 = SVM vCPU 수 / 노드 수.
-    #               2소켓(노드2) SVM 8 vCPU -> 4개씩, SVM 4 vCPU -> 2개씩
-    #               SNC-2 2소켓(노드4) SVM 4 vCPU -> 1개씩
-    #           - 묶음은 마지막 노드부터 역순으로 배정한다(뒤 소켓 우선).
-    #           - SVM 의 가상 소켓 수가 호스트 노드 수보다 적으면(v3.10) vCPU 를 호스트 노드별로 나누지 않는다.
-    #             가상 소켓 j 의 vCPU 는 호스트 노드 묶음 j(뒤 노드부터)의 pCPU 를 합친 같은 값을 받는다.
-    #               가상 소켓 1개 : 모든 vCPU 가 전 노드의 pCPU 를 합친 같은 값
-    #               SNC-2 2소켓(노드4) 에 가상 소켓 2개 : 소켓 0 -> 노드 3,2 / 소켓 1 -> 노드 1,0
-    #     rev12 와 rev11 의 차이는 SVM 이 코어의 스레드를 다 쓰느냐(rev12),
-    #     HT 짝꿍 스레드만 쓰느냐(rev11) 뿐이다.
-    #
-    #   [주의 - 시트 기록과 달라지는 부분]
-    #     rev11 의 제외량을 소켓당 4코어로 두었다 (rev12 와 같은 기준:
-    #     SVM 은 소켓당 물리 CPU 4개 제외). 시트 기록값은
-    #     §3 이 소켓당 2코어 제외, §9 가 0코어 제외로 서로 다르고 둘 다 4가 아니다.
-    #     기록값을 그대로 재현하려면 -EsxiReserveCores 2 (§3) / 0 (§9) 를 준다.
-    #     rev12 계열(§2, §7, §8)은 4코어 제외로 시트와 일치한다.
-    #
-    #   토폴로지 판별
-    #     소켓, 코어, 스레드 수와 NUMA 노드별 pCPU 목록을 호스트에서 읽는다
-    #     (Hardware.CpuInfo / Hardware.NumaInfo). VM 을 몇 소켓 몇 코어로 만들었든
-    #     스크립트가 그에 맞춰 계산하므로 프로파일 이름은 바꾸지 않는다.
-    #     NumaInfo 가 SNC 노드를 보고하지 않는 펌웨어라면 -NumaNodesPerSocket 로
-    #     소켓당 노드 수를 직접 준다.
-    #
-    #   변경 대상 : sched.vcpuN.affinity / sched.nodeN.affinity 키.
-    #     예외 하나 - HT Off 호스트에서 SvmScope 가 host 인 프로파일은 SVM 에 affinity 대신
-    #     NUMA 토폴로지 키를 준다. 확인 표에 별도 구획으로 표시되며
-    #     -SkipTopologyKeys 로 뺄 수 있다.
-    #     그 외 advanced setting 은 일절 조회/변경/삭제하지 않는다.
-    #   공통 동작 : 적용 전 대상 VM 의 기존 vcpu/node affinity 키를 먼저 제거.
-    #   전제 : pCPU 열거가 코어 인접 (코어 k = pCPU k*T .. k*T+T-1, T = 코어당 스레드).
-    #          esxcli hardware cpu list 로 확인할 것.
+    # [변경 이력]
+    #   v3.11 (2026-11-20)  첫머리 설명을 용도, 옵션, 적용 예시 중심으로 다시 작성.
+    #                       계산과 화면 출력은 v3.10 과 같다
+    #   v3.10 (2026-11-20)  rev12, rev11 의 SVM 배정이 SVM 의 가상 소켓 수를 반영.
+    #                       v3.9 까지는 가상 소켓 1개인 SVM 도 vCPU 를 호스트 NUMA 노드별로 나눠 배정했다
+    #   v3.9 까지의 변경 내용은 저장소 태그 SetVcpuAffinityProfile-v3.10 의 파일 첫머리에 있다
     # ==========================================================================
     [CmdletBinding()]
     param (
